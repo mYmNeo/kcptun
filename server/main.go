@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/sha1"
 	"fmt"
 	"io"
@@ -10,16 +12,18 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
 
 	"github.com/urfave/cli"
-	kcp "github.com/xtaci/kcp-go/v5"
-	"github.com/xtaci/kcptun/generic"
+	"github.com/xtaci/kcp-go/v5"
 	"github.com/xtaci/smux"
 	"github.com/xtaci/tcpraw"
+
+	"github.com/xtaci/kcptun/generic"
 )
 
 const (
@@ -36,11 +40,6 @@ var VERSION = "SELFBUILD"
 
 // handle multiplex-ed connection
 func handleMux(conn net.Conn, config *Config) {
-	// check if target is unix domain socket
-	var isUnix bool
-	if _, _, err := net.SplitHostPort(config.Target); err != nil {
-		isUnix = true
-	}
 	log.Println("smux version:", config.SmuxVer, "on connection:", conn.LocalAddr(), "->", conn.RemoteAddr())
 
 	// stream multiplex
@@ -65,14 +64,7 @@ func handleMux(conn net.Conn, config *Config) {
 		}
 
 		go func(p1 *smux.Stream) {
-			var p2 net.Conn
-			var err error
-			if !isUnix {
-				p2, err = net.Dial("tcp", config.Target)
-			} else {
-				p2, err = net.Dial("unix", config.Target)
-			}
-
+			p2, err := Handshake(p1)
 			if err != nil {
 				log.Println(err)
 				p1.Close()
@@ -116,6 +108,45 @@ func checkError(err error) {
 		log.Printf("%+v\n", err)
 		os.Exit(-1)
 	}
+}
+
+func Handshake(rw io.ReadWriter) (net.Conn, error) {
+	var buf bytes.Buffer
+	req, err := http.ReadRequest(bufio.NewReader(io.TeeReader(rw, &buf))) // TeeReader keeps a copy of data read in case it's a plain http req
+	if err != nil {
+		return nil, err
+	}
+
+	/**
+	 * for plain http://
+	 *
+	 * GET /ip HTTP/1.1
+	 * Host: httpbin.org
+	 * User-Agent: curl/7.79.1
+	 * Accept: &#42;/&#42;
+	 * Proxy-Connection: Keep-Alive
+	 * content-length: 0
+	 */
+	target := req.Host
+	if req.Method != "CONNECT" {
+		log.Printf("URL: %s", req.URL.String())
+		if !strings.HasSuffix(req.Host, ":80") {
+			target += ":80"
+		}
+		return net.Dial("tcp", target)
+	}
+
+	/**
+	 * for tcp/ssl/tls, including https://
+	 *
+	 * CONNECT streamline.t-mobile.com:22 HTTP/1.1
+	 * User-Agent: curl/7.79.1
+	 */
+	rw.Write([]byte("HTTP/1.1 200 Connection Established\r\n" +
+		"Proxy-agent: Golang-Proxy\r\n" +
+		"\r\n"))
+	log.Printf("URL: %s", req.RequestURI)
+	return net.Dial("tcp", req.RequestURI)
 }
 
 func main() {
