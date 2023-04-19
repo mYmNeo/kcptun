@@ -146,7 +146,7 @@ COMMANDS:
 
 GLOBAL OPTIONS:
    --localaddr value, -l value      local listen address (default: ":12948")
-   --remoteaddr value, -r value     kcp server address (default: "vps:29900")
+   --remoteaddr value, -r value     kcp server address, eg: "IP:29900" a for single port, "IP:minport-maxport" for port range (default: "vps:29900")
    --key value                      pre-shared secret between client and server (default: "it's a secrect") [$KCPTUN_KEY]
    --crypt value                    aes, aes-128, aes-192, salsa20, blowfish, twofish, cast5, 3des, tea, xtea, xor, sm4, none (default: "aes")
    --mode value                     profiles: fast3, fast2, fast, normal, manual (default: "fast")
@@ -188,7 +188,7 @@ COMMANDS:
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --listen value, -l value         kcp server listen address (default: ":29900")
+   --listen value, -l value         kcp server listen address, eg: "IP:29900" for a single port, "IP:minport-maxport" for port range (default: ":29900")
    --target value, -t value         target server address, or path/to/unix_socket (default: "127.0.0.1:12948")
    --key value                      pre-shared secret between client and server (default: "it's a secrect") [$KCPTUN_KEY]
    --crypt value                    aes, aes-128, aes-192, salsa20, blowfish, twofish, cast5, 3des, tea, xtea, xor, sm4, none (default: "aes")
@@ -215,6 +215,21 @@ GLOBAL OPTIONS:
    --help, -h                       show help
    --version, -v                    print the version
 ```
+
+#### Multiport Dialer
+
+kcptun supports multi-port dialer like below:
+
+```
+client: --remoteaddr IP:minport-maxport
+server: --listen IP:minport-maxport
+
+eg:
+client: --remoteaddr IP:3000-4000
+server: --listen 0.0.0.0:3000-4000
+```
+by specifying port-range, kcptun will automatically switch to next random port within port-range when establishing each new connection.
+
 
 #### Forward Error Correction
 

@@ -164,7 +164,7 @@ func main() {
 		cli.StringFlag{
 			Name:  "listen,l",
 			Value: ":29900",
-			Usage: "kcp server listen address",
+			Usage: `kcp server listen address, eg: "IP:29900" for a single port, "IP:minport-maxport" for port range`,
 		},
 		cli.StringFlag{
 			Name:  "target, t",
@@ -463,22 +463,35 @@ func main() {
 			}
 		}
 
-		if config.TCP { // tcp dual stack
-			if conn, err := tcpraw.Listen("tcp", config.Listen); err == nil {
-				lis, err := kcp.ServeConn(block, config.DataShard, config.ParityShard, conn)
-				checkError(err)
-				wg.Add(1)
-				go loop(lis)
-			} else {
-				log.Println(err)
-			}
+		mp, err := generic.ParseMultiPort(config.Listen)
+		if err != nil {
+			log.Println(err)
+			return err
 		}
 
-		// udp stack
-		lis, err := kcp.ListenWithOptions(config.Listen, block, config.DataShard, config.ParityShard)
-		checkError(err)
-		wg.Add(1)
-		go loop(lis)
+		// create multiple listener
+		for port := mp.MinPort; port <= mp.MaxPort; port++ {
+			listenAddr := fmt.Sprintf("%v:%v", mp.Host, port)
+			if config.TCP { // tcp dual stack
+				if conn, err := tcpraw.Listen("tcp", listenAddr); err == nil {
+					log.Printf("Listening on: %v/tcp", listenAddr)
+					lis, err := kcp.ServeConn(block, config.DataShard, config.ParityShard, conn)
+					checkError(err)
+					wg.Add(1)
+					go loop(lis)
+				} else {
+					log.Println(err)
+				}
+			}
+
+			// udp stack
+			log.Printf("Listening on: %v/udp", listenAddr)
+			lis, err := kcp.ListenWithOptions(listenAddr, block, config.DataShard, config.ParityShard)
+			checkError(err)
+			wg.Add(1)
+			go loop(lis)
+		}
+
 		wg.Wait()
 		return nil
 	}
