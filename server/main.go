@@ -56,6 +56,7 @@ const (
 const (
 	TGT_UNIX = iota
 	TGT_TCP
+	TGT_SOCKS5
 )
 
 // VERSION is injected by buildflags
@@ -451,7 +452,7 @@ func main() {
 // handle multiplex-ed connection
 func handleMux(_Q_ *qpp.QuantumPermutationPad, conn net.Conn, config *Config) {
 	// check target type
-	targetType := TGT_TCP
+	targetType := config.ProxyMode
 	if _, _, err := net.SplitHostPort(config.Target); err != nil {
 		targetType = TGT_UNIX
 	}
@@ -485,21 +486,18 @@ func handleMux(_Q_ *qpp.QuantumPermutationPad, conn net.Conn, config *Config) {
 			switch targetType {
 			case TGT_TCP:
 				p2, err = net.Dial("tcp", config.Target)
-				if err != nil {
-					log.Println(err)
-					p1.Close()
-					return
-				}
-				handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
 			case TGT_UNIX:
 				p2, err = net.Dial("unix", config.Target)
-				if err != nil {
-					log.Println(err)
-					p1.Close()
-					return
-				}
-				handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
+			case TGT_SOCKS5:
+				p2, err = std.SocksHandshake(p1)
 			}
+
+			if err != nil {
+				log.Println(err)
+				p1.Close()
+				return
+			}
+			handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
 
 		}(stream)
 	}
