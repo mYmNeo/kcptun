@@ -23,31 +23,28 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"net"
 
 	"github.com/pkg/errors"
 	kcp "github.com/xtaci/kcp-go/v5"
+	"github.com/xtaci/kcptun/config/client"
 	"github.com/xtaci/kcptun/std"
 	"github.com/xtaci/tcpraw"
 )
 
 // dial connects to the remote address
-func dial(config *Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
-	mp, err := std.ParseMultiPort(config.RemoteAddr)
+func dial(config *client.Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
+	randIdx := rand.Intn(len(config.RemoteAddrs))
+	mp, err := std.ParseMultiPort(config.RemoteAddrs[randIdx])
 	if err != nil {
 		return nil, err
 	}
 
-	// generate a random port
-	var randport uint64
-	err = binary.Read(rand.Reader, binary.LittleEndian, &randport)
-	if err != nil {
-		return nil, err
-	}
-	remoteAddr := fmt.Sprintf("%v:%v", mp.Host, uint64(mp.MinPort)+randport%uint64(mp.MaxPort-mp.MinPort+1))
+	//random port between min and max
+	randport := uint64(rand.Intn(int(mp.MaxPort-mp.MinPort+1))) + uint64(mp.MinPort)
+	remoteAddr := fmt.Sprintf("%v:%v", mp.Host, randport)
 
 	// emulate TCP connection
 	if config.TCP {
@@ -61,8 +58,7 @@ func dial(config *Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
 			return nil, errors.WithStack(err)
 		}
 
-		var convid uint32
-		binary.Read(rand.Reader, binary.LittleEndian, &convid)
+		convid := rand.Uint32()
 		return kcp.NewConn4(convid, udpaddr, block, config.DataShard, config.ParityShard, true, conn)
 	}
 

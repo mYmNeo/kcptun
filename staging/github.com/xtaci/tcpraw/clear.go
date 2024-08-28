@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 //
-// # Copyright (c) 2016 xtaci
+// Copyright (c) 2019 xtaci
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,52 +20,32 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package std
+//go:build linux
+
+package tcpraw
 
 import (
-	"fmt"
-	"strconv"
-	"testing"
+	"os/exec"
+	"sync"
 )
 
-func TestDial(t *testing.T) {
-	matches := remoteAddrMatcher.FindStringSubmatch("www.unknown.unknown:20000-21000")
-	for i := 0; i < len(matches); i++ {
-		fmt.Println(matches[i])
+func IPTablesReset() {
+	// gracefully shutdown all connection
+	connListMu.Lock()
+	var wg sync.WaitGroup
+	wg.Add(connList.Len())
+	for elem := connList.Front(); elem != nil; elem = elem.Next() {
+		go func(conn *tcpConn) {
+			conn.Close()
+			wg.Done()
+		}(elem.Value.(*tcpConn))
 	}
+	connListMu.Unlock()
+	wg.Wait()
 
-	minPort, err := strconv.Atoi(matches[2])
-	if err != nil {
-		t.Fatal(err)
-	}
-	maxPort, err := strconv.Atoi(matches[3])
-	if err != nil {
-		t.Fatal(err)
-	}
+	exec.Command("ipset", "flush", tcprawSportSet).CombinedOutput()
+	exec.Command("ipset", "flush", tcprawDportSet).CombinedOutput()
 
-	t.Log("minport:", minPort)
-	t.Log("maxport:", maxPort)
-
-	remoteAddr := fmt.Sprintf("%v:%v", matches[1], uint64(minPort)+1000%uint64(maxPort-minPort+1))
-
-	t.Log("RemoteAddr:", remoteAddr)
-
-	testcase2 := "1.2.3.4:20000"
-	matches = remoteAddrMatcher.FindStringSubmatch(testcase2)
-	for i := 0; i < len(matches); i++ {
-		t.Log(testcase2, "submatch", i, matches[i])
-	}
-
-	testcase3 := ":20000-20001"
-	matches = remoteAddrMatcher.FindStringSubmatch(testcase3)
-	for i := 0; i < len(matches); i++ {
-		t.Log(testcase3, "submatch", i, matches[i])
-	}
-
-	testcase4 := ":20000"
-	matches = remoteAddrMatcher.FindStringSubmatch(testcase4)
-	for i := 0; i < len(matches); i++ {
-		t.Log(testcase4, "submatch", i, matches[i])
-	}
-
+	exec.Command("ipset", "destroy", tcprawSportSet).CombinedOutput()
+	exec.Command("ipset", "destroy", tcprawDportSet).CombinedOutput()
 }
