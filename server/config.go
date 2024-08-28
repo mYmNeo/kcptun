@@ -60,6 +60,7 @@ type Config struct {
 	QPP          bool   `json:"qpp"`
 	QPPCount     int    `json:"qpp-count"`
 	CloseWait    int    `json:"closewait"`
+	ProxyMode    int    `json:"proxy-mode"`
 }
 
 func parseJSONConfig(config *Config, path string) error {
