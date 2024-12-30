@@ -47,10 +47,12 @@ import (
 )
 
 const (
-	// SALT is use for pbkdf2 key expansion
-	SALT = "kcp-go"
 	// maximum supported smux version
 	maxSmuxVer = 2
+)
+
+var (
+	SALT = "kcp-go"
 )
 
 const (
