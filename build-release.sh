@@ -28,7 +28,7 @@ if hash upx 2>/dev/null; then
 fi
 
 VERSION=`date -u +%Y%m%d`
-LDFLAGS="-X main.VERSION=$VERSION -s -w"
+LDFLAGS="-X main.VERSION=$VERSION -s -w -X main.SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
 GCFLAGS=""
 
 # LOONG64
