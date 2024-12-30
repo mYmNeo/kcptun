@@ -46,12 +46,14 @@ import (
 )
 
 const (
-	// SALT is use for pbkdf2 key expansion
-	SALT = "kcp-go"
 	// maximum supported smux version
 	maxSmuxVer = 2
 	// scavenger check period
 	scavengePeriod = 5
+)
+
+var (
+	SALT = "kcp-go"
 )
 
 // VERSION is injected by buildflags
