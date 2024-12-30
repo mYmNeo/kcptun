@@ -23,9 +23,8 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"net"
 
 	"github.com/pkg/errors"
@@ -41,13 +40,9 @@ func dial(config *Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
 		return nil, err
 	}
 
-	// generate a random port
-	var randport uint64
-	err = binary.Read(rand.Reader, binary.LittleEndian, &randport)
-	if err != nil {
-		return nil, err
-	}
-	remoteAddr := fmt.Sprintf("%v:%v", mp.Host, uint64(mp.MinPort)+randport%uint64(mp.MaxPort-mp.MinPort+1))
+	//random port between min and max
+	randport := uint64(rand.Intn(int(mp.MaxPort-mp.MinPort+1))) + uint64(mp.MinPort)
+	remoteAddr := fmt.Sprintf("%v:%v", mp.Host, randport)
 
 	// emulate TCP connection
 	if config.TCP {
@@ -61,8 +56,7 @@ func dial(config *Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
 			return nil, errors.WithStack(err)
 		}
 
-		var convid uint32
-		binary.Read(rand.Reader, binary.LittleEndian, &convid)
+		convid := rand.Uint32()
 		return kcp.NewConn4(convid, udpaddr, block, config.DataShard, config.ParityShard, true, conn)
 	}
 
