@@ -435,14 +435,14 @@ func main() {
 				} else {
 					log.Println(err)
 				}
+			} else {
+				// udp stack
+				log.Printf("Listening on: %v/udp", listenAddr)
+				lis, err := kcp.ListenWithOptions(listenAddr, block, config.DataShard, config.ParityShard)
+				checkError(err)
+				wg.Add(1)
+				go loop(lis)
 			}
-
-			// udp stack
-			log.Printf("Listening on: %v/udp", listenAddr)
-			lis, err := kcp.ListenWithOptions(listenAddr, block, config.DataShard, config.ParityShard)
-			checkError(err)
-			wg.Add(1)
-			go loop(lis)
 		}
 
 		wg.Wait()
