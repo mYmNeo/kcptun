@@ -33,8 +33,7 @@ require (
 	golang.org/x/sys v0.34.0 // indirect
 )
 
-//replace github.com/xtaci/tcpraw => /home/xtaci/tcpraw
-//replace github.com/xtaci/kcp-go/v5 => /home/xtaci/go/src/github.com/xtaci/kcp-go
+replace github.com/xtaci/tcpraw => ./staging/github.com/xtaci/tcpraw
 
 go 1.23.0
 
