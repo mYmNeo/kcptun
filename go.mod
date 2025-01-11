@@ -28,7 +28,7 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 )
 
-//replace github.com/xtaci/tcpraw => /home/xtaci/tcpraw
+replace github.com/xtaci/tcpraw => ./staging/github.com/xtaci/tcpraw
 
 go 1.22.3
 
