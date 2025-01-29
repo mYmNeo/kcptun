@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
- 
+
 BUILD_DIR=$(dirname "$0")/build
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
@@ -7,11 +7,12 @@ cd $BUILD_DIR
 export GO111MODULE=on
 echo "Setting GO111MODULE to" $GO111MODULE
 
+SALT=${SALT:-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)}
 VERSION=`date -u +%Y%m%d`
-LDFLAGS="-X main.VERSION=$VERSION -s -w -X main.SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+LDFLAGS="-X main.VERSION=$VERSION -s -w -X main.SALT=${SALT}"
 GCFLAGS=""
 
-# AMD64 
+# AMD64
 OSES=(linux)
 for os in ${OSES[@]}; do
     suffix=""
