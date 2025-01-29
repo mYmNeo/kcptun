@@ -1,11 +1,13 @@
 package std
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"strconv"
+	"sync"
 )
 
 // UDPEnabled is the toggle for UDP support
@@ -70,6 +72,16 @@ func (a Addr) String() string {
 	return net.JoinHostPort(host, port)
 }
 
+var (
+	connectSuccessReply = []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+)
+
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, MaxAddrLen+3)
+	},
+}
+
 func readAddr(r io.Reader, b []byte) (Addr, error) {
 	if len(b) < MaxAddrLen {
 		return nil, io.ErrShortBuffer
@@ -98,81 +110,12 @@ func readAddr(r io.Reader, b []byte) (Addr, error) {
 	return nil, ErrAddressNotSupported
 }
 
-// ReadAddr reads just enough bytes from r to get a valid Addr.
-func ReadAddr(r io.Reader) (Addr, error) {
-	return readAddr(r, make([]byte, MaxAddrLen))
-}
-
-// SplitAddr slices a SOCKS address from beginning of b. Returns nil if failed.
-func SplitAddr(b []byte) Addr {
-	addrLen := 1
-	if len(b) < addrLen {
-		return nil
-	}
-
-	switch b[0] {
-	case AtypDomainName:
-		if len(b) < 2 {
-			return nil
-		}
-		addrLen = 1 + 1 + int(b[1]) + 2
-	case AtypIPv4:
-		addrLen = 1 + net.IPv4len + 2
-	case AtypIPv6:
-		addrLen = 1 + net.IPv6len + 2
-	default:
-		return nil
-
-	}
-
-	if len(b) < addrLen {
-		return nil
-	}
-
-	return b[:addrLen]
-}
-
-// ParseAddr parses the address in string s. Returns nil if failed.
-func ParseAddr(s string) Addr {
-	var addr Addr
-	host, port, err := net.SplitHostPort(s)
-	if err != nil {
-		return nil
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if ip4 := ip.To4(); ip4 != nil {
-			addr = make([]byte, 1+net.IPv4len+2)
-			addr[0] = AtypIPv4
-			copy(addr[1:], ip4)
-		} else {
-			addr = make([]byte, 1+net.IPv6len+2)
-			addr[0] = AtypIPv6
-			copy(addr[1:], ip)
-		}
-	} else {
-		if len(host) > 255 {
-			return nil
-		}
-		addr = make([]byte, 1+1+len(host)+2)
-		addr[0] = AtypDomainName
-		addr[1] = byte(len(host))
-		copy(addr[2:], host)
-	}
-
-	portnum, err := strconv.ParseUint(port, 10, 16)
-	if err != nil {
-		return nil
-	}
-
-	addr[len(addr)-2], addr[len(addr)-1] = byte(portnum>>8), byte(portnum)
-
-	return addr
-}
-
 // SocksHandshake fast-tracks SOCKS initialization to get target address to connect.
 func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 	// Read RFC 1928 for request and reply structure and sizes.
-	buf := make([]byte, MaxAddrLen)
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+
 	// read VER, NMETHODS, METHODS
 	if _, err := io.ReadFull(rw, buf[:2]); err != nil {
 		return nil, err
@@ -196,13 +139,62 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 	}
 	switch cmd {
 	case CmdConnect:
-		_, _ = rw.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}) // SOCKS v5, reply succeeded
+		_, _ = rw.Write(connectSuccessReply)
+
+		log.Println("Connecting to", addr.String())
+
+		rc, err := net.Dial("tcp", addr.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to target: %v", err)
+		}
+
+		return rc, nil
 	case CmdUDPAssociate:
 		if !UDPEnabled {
 			return nil, ErrCommandNotSupported
 		}
-		listenAddr := ParseAddr(rw.(net.Conn).LocalAddr().String())
-		_, err = rw.Write(append([]byte{5, 0, 0}, listenAddr...)) // SOCKS v5, reply succeeded
+
+		conn, ok := rw.(net.Conn)
+		if !ok {
+			return nil, errors.New("not a net.Conn")
+		}
+		tcpAddr, ok := conn.LocalAddr().(*net.TCPAddr)
+		if !ok {
+			return nil, errors.New("local address is not a TCPAddr")
+		}
+
+		buf := bufferPool.Get().([]byte)
+		defer bufferPool.Put(buf)
+
+		var listenAddr Addr
+		ip := tcpAddr.IP.To4()
+		if ip != nil {
+			listenAddr = buf[:1+net.IPv4len+2]
+			listenAddr[0] = AtypIPv4
+			copy(listenAddr[1:], ip)
+		} else {
+			ip = tcpAddr.IP.To16()
+			if ip == nil {
+				return nil, ErrAddressNotSupported
+			}
+			listenAddr = buf[:1+net.IPv6len+2]
+			listenAddr[0] = AtypIPv6
+			copy(listenAddr[1:], ip)
+		}
+
+		port := tcpAddr.Port
+		listenAddr[len(listenAddr)-2] = byte(port >> 8)
+		listenAddr[len(listenAddr)-1] = byte(port)
+
+		replyBuf := bufferPool.Get().([]byte)
+		defer bufferPool.Put(replyBuf)
+
+		replyBuf[0] = 5
+		replyBuf[1] = 0
+		replyBuf[2] = 0
+		copy(replyBuf[3:], listenAddr)
+		_, err = rw.Write(replyBuf[:3+len(listenAddr)])
+
 		if err != nil {
 			return nil, ErrCommandNotSupported
 		}
@@ -211,12 +203,5 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 		return nil, ErrCommandNotSupported
 	}
 
-	log.Println("Connecting to", addr.String())
-
-	rc, err := net.Dial("tcp", addr.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to target: %v", err)
-	}
-
-	return rc, nil
+	return nil, err
 }
