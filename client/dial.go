@@ -35,7 +35,8 @@ import (
 
 // dial connects to the remote address
 func dial(config *Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
-	mp, err := std.ParseMultiPort(config.RemoteAddr)
+	randIdx := rand.Intn(len(config.RemoteAddrs))
+	mp, err := std.ParseMultiPort(config.RemoteAddrs[randIdx])
 	if err != nil {
 		return nil, err
 	}
