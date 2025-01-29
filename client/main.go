@@ -245,7 +245,7 @@ func main() {
 	myApp.Action = func(c *cli.Context) error {
 		config := Config{}
 		config.LocalAddr = c.String("localaddr")
-		config.RemoteAddr = c.String("remoteaddr")
+		config.RemoteAddrs = c.StringSlice("remoteaddrs")
 		config.Key = c.String("key")
 		config.Crypt = c.String("crypt")
 		config.Mode = c.String("mode")
@@ -327,7 +327,7 @@ func main() {
 		log.Println("QPP:", config.QPP)
 		log.Println("QPP Count:", config.QPPCount)
 		log.Println("nodelay parameters:", config.NoDelay, config.Interval, config.Resend, config.NoCongestion)
-		log.Println("remote address:", config.RemoteAddr)
+		log.Println("remote addresses:", config.RemoteAddrs)
 		log.Println("sndwnd:", config.SndWnd, "rcvwnd:", config.RcvWnd)
 		log.Println("compression:", !config.NoComp)
 		log.Println("mtu:", config.MTU)
