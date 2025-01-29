@@ -29,6 +29,9 @@ import (
 	"github.com/pkg/errors"
 )
 
+// 包级别变量，只编译一次
+var remoteAddrMatcher = regexp.MustCompile(`(.*)\:([0-9]{1,5})-?([0-9]{1,5})?`)
+
 type MultiPort struct {
 	Host    string
 	MinPort uint64
@@ -37,7 +40,6 @@ type MultiPort struct {
 
 // Parse mulitport listener or dialer
 func ParseMultiPort(addr string) (*MultiPort, error) {
-	remoteAddrMatcher := regexp.MustCompile(`(.*)\:([0-9]{1,5})-?([0-9]{1,5})?`)
 	matches := remoteAddrMatcher.FindStringSubmatch(addr)
 
 	if len(matches) >= 4 {
@@ -68,5 +70,4 @@ func ParseMultiPort(addr string) (*MultiPort, error) {
 	}
 
 	return nil, errors.Errorf("malformed address:%v", addr)
-
 }
