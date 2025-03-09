@@ -1,6 +1,7 @@
 package std
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -204,4 +205,74 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 	}
 
 	return nil, err
+}
+
+func SendSocksConnectRequest(rw io.ReadWriter, addr *net.TCPAddr) error {
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+
+	// Prepare SOCKS5 CONNECT request
+	buf[0] = 5 // SOCKS5 version
+	buf[1] = 1 // NMETHODS command
+	buf[2] = 0 // NMETHODS value
+
+	_, err := rw.Write(buf[:3])
+	if err != nil {
+		return err
+	}
+
+	buf[0] = 5          // SOCKS5 version
+	buf[1] = CmdConnect // CONNECT command
+	buf[2] = 0          // Reserved byte
+
+	var reqLen int
+	// Add address
+	ip := addr.IP.To4()
+	if ip != nil {
+		buf[3] = AtypIPv4
+		copy(buf[4:], ip)
+		reqLen = 4 + net.IPv4len
+	} else {
+		ip = addr.IP.To16()
+		if ip == nil {
+			return ErrAddressNotSupported
+		}
+		buf[3] = AtypIPv6
+		copy(buf[4:], ip)
+		reqLen = 4 + net.IPv6len
+	}
+
+	// Add port
+	port := addr.Port
+	buf[reqLen] = byte(port >> 8)
+	buf[reqLen+1] = byte(port)
+	reqLen += 2
+
+	// Send connect request
+	_, err = rw.Write(buf[:reqLen])
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ReadSocksConnectResponse(rw io.ReadWriter) error {
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+	// Read response
+	n, err := io.ReadFull(rw, buf[:len(connectSuccessReply)])
+	if err != nil {
+		return err
+	}
+
+	if n != len(connectSuccessReply) {
+		return errors.New("invalid socks5 connect response")
+	}
+
+	if !bytes.Equal(buf[:n], connectSuccessReply) {
+		return errors.New("socks5 connect request failed")
+	}
+
+	return nil
 }
