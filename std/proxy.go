@@ -77,9 +77,15 @@ var (
 	connectSuccessReply = []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 )
 
+type bufferItem struct {
+	buf []byte
+}
+
 var bufferPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, MaxAddrLen+3)
+	New: func() any {
+		return &bufferItem{
+			buf: make([]byte, MaxAddrLen+3),
+		}
 	},
 }
 
@@ -114,15 +120,15 @@ func readAddr(r io.Reader, b []byte) (Addr, error) {
 // SocksHandshake fast-tracks SOCKS initialization to get target address to connect.
 func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 	// Read RFC 1928 for request and reply structure and sizes.
-	buf := bufferPool.Get().([]byte)
-	defer bufferPool.Put(buf)
+	bufItem := bufferPool.Get().(*bufferItem)
+	defer bufferPool.Put(bufItem)
 
 	// read VER, NMETHODS, METHODS
-	if _, err := io.ReadFull(rw, buf[:2]); err != nil {
+	if _, err := io.ReadFull(rw, bufItem.buf[:2]); err != nil {
 		return nil, err
 	}
-	nmethods := buf[1]
-	if _, err := io.ReadFull(rw, buf[:nmethods]); err != nil {
+	nmethods := bufItem.buf[1]
+	if _, err := io.ReadFull(rw, bufItem.buf[:nmethods]); err != nil {
 		return nil, err
 	}
 	// write VER METHOD
@@ -130,11 +136,11 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 		return nil, err
 	}
 	// read VER CMD RSV ATYP DST.ADDR DST.PORT
-	if _, err := io.ReadFull(rw, buf[:3]); err != nil {
+	if _, err := io.ReadFull(rw, bufItem.buf[:3]); err != nil {
 		return nil, err
 	}
-	cmd := buf[1]
-	addr, err := readAddr(rw, buf)
+	cmd := bufItem.buf[1]
+	addr, err := readAddr(rw, bufItem.buf)
 	if err != nil {
 		return nil, err
 	}
@@ -164,13 +170,13 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 			return nil, errors.New("local address is not a TCPAddr")
 		}
 
-		buf := bufferPool.Get().([]byte)
-		defer bufferPool.Put(buf)
+		bufItem := bufferPool.Get().(*bufferItem)
+		defer bufferPool.Put(bufItem)
 
 		var listenAddr Addr
 		ip := tcpAddr.IP.To4()
 		if ip != nil {
-			listenAddr = buf[:1+net.IPv4len+2]
+			listenAddr = bufItem.buf[:1+net.IPv4len+2]
 			listenAddr[0] = AtypIPv4
 			copy(listenAddr[1:], ip)
 		} else {
@@ -178,7 +184,7 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 			if ip == nil {
 				return nil, ErrAddressNotSupported
 			}
-			listenAddr = buf[:1+net.IPv6len+2]
+			listenAddr = bufItem.buf[:1+net.IPv6len+2]
 			listenAddr[0] = AtypIPv6
 			copy(listenAddr[1:], ip)
 		}
@@ -187,14 +193,14 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 		listenAddr[len(listenAddr)-2] = byte(port >> 8)
 		listenAddr[len(listenAddr)-1] = byte(port)
 
-		replyBuf := bufferPool.Get().([]byte)
+		replyBuf := bufferPool.Get().(*bufferItem)
 		defer bufferPool.Put(replyBuf)
 
-		replyBuf[0] = 5
-		replyBuf[1] = 0
-		replyBuf[2] = 0
-		copy(replyBuf[3:], listenAddr)
-		_, err = rw.Write(replyBuf[:3+len(listenAddr)])
+		replyBuf.buf[0] = 5
+		replyBuf.buf[1] = 0
+		replyBuf.buf[2] = 0
+		copy(replyBuf.buf[3:], listenAddr)
+		_, err = rw.Write(replyBuf.buf[:3+len(listenAddr)])
 
 		if err != nil {
 			return nil, ErrCommandNotSupported
@@ -208,48 +214,48 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 }
 
 func SendSocksConnectRequest(rw io.ReadWriter, addr *net.TCPAddr) error {
-	buf := bufferPool.Get().([]byte)
-	defer bufferPool.Put(buf)
+	bufItem := bufferPool.Get().(*bufferItem)
+	defer bufferPool.Put(bufItem)
 
 	// Prepare SOCKS5 CONNECT request
-	buf[0] = 5 // SOCKS5 version
-	buf[1] = 1 // NMETHODS command
-	buf[2] = 0 // NMETHODS value
+	bufItem.buf[0] = 5 // SOCKS5 version
+	bufItem.buf[1] = 1 // NMETHODS command
+	bufItem.buf[2] = 0 // NMETHODS value
 
-	_, err := rw.Write(buf[:3])
+	_, err := rw.Write(bufItem.buf[:3])
 	if err != nil {
 		return err
 	}
 
-	buf[0] = 5          // SOCKS5 version
-	buf[1] = CmdConnect // CONNECT command
-	buf[2] = 0          // Reserved byte
+	bufItem.buf[0] = 5          // SOCKS5 version
+	bufItem.buf[1] = CmdConnect // CONNECT command
+	bufItem.buf[2] = 0          // Reserved byte
 
 	var reqLen int
 	// Add address
 	ip := addr.IP.To4()
 	if ip != nil {
-		buf[3] = AtypIPv4
-		copy(buf[4:], ip)
+		bufItem.buf[3] = AtypIPv4
+		copy(bufItem.buf[4:], ip)
 		reqLen = 4 + net.IPv4len
 	} else {
 		ip = addr.IP.To16()
 		if ip == nil {
 			return ErrAddressNotSupported
 		}
-		buf[3] = AtypIPv6
-		copy(buf[4:], ip)
+		bufItem.buf[3] = AtypIPv6
+		copy(bufItem.buf[4:], ip)
 		reqLen = 4 + net.IPv6len
 	}
 
 	// Add port
 	port := addr.Port
-	buf[reqLen] = byte(port >> 8)
-	buf[reqLen+1] = byte(port)
+	bufItem.buf[reqLen] = byte(port >> 8)
+	bufItem.buf[reqLen+1] = byte(port)
 	reqLen += 2
 
 	// Send connect request
-	_, err = rw.Write(buf[:reqLen])
+	_, err = rw.Write(bufItem.buf[:reqLen])
 	if err != nil {
 		return err
 	}
@@ -258,19 +264,21 @@ func SendSocksConnectRequest(rw io.ReadWriter, addr *net.TCPAddr) error {
 }
 
 func ReadSocksConnectResponse(rw io.ReadWriter) error {
-	buf := bufferPool.Get().([]byte)
-	defer bufferPool.Put(buf)
+	bufItem := bufferPool.Get().(*bufferItem)
+	defer bufferPool.Put(bufItem)
+
 	// Read response
-	n, err := io.ReadFull(rw, buf[:len(connectSuccessReply)])
+	// 0x5, 0x0, 0x5, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0
+	n, err := io.ReadFull(rw, bufItem.buf[:len(connectSuccessReply)+2])
 	if err != nil {
 		return err
 	}
 
-	if n != len(connectSuccessReply) {
+	if n != len(connectSuccessReply)+2 {
 		return errors.New("invalid socks5 connect response")
 	}
 
-	if !bytes.Equal(buf[:n], connectSuccessReply) {
+	if !bytes.Equal(bufItem.buf[2:n], connectSuccessReply) {
 		return errors.New("socks5 connect request failed")
 	}
 

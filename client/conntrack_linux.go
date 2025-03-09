@@ -19,15 +19,19 @@ type ConntrackFlow struct {
 	evChan chan conntrack.Event
 	errCh  chan error
 	l      sync.RWMutex
-	conns  map[ConnTuple]struct{}
+	conns  map[ConnTupleKey]ConnTuple
 }
 
 type ConnTuple struct {
-	SrcAddr net.Addr
-	DstAddr net.Addr
-	SrcPort uint16
-	DstPort uint16
-	Proto   uint8
+	Addr  net.IP
+	Port  uint16
+	Proto uint8
+}
+
+type ConnTupleKey struct {
+	Addr  string
+	Port  uint16
+	Proto uint8
 }
 
 func NewConntrackFlow() (*ConntrackFlow, error) {
@@ -54,7 +58,7 @@ func NewConntrackFlow() (*ConntrackFlow, error) {
 		conn:   conn,
 		evChan: evChan,
 		errCh:  errCh,
-		conns:  make(map[ConnTuple]struct{}),
+		conns:  make(map[ConnTupleKey]ConnTuple),
 	}
 
 	go cf.run()
@@ -71,26 +75,37 @@ func (cf *ConntrackFlow) run() {
 		case ev := <-cf.evChan:
 			switch {
 			case ev.Flow.Status.Assured():
-				key := ConnTuple{
-					SrcAddr: &net.IPAddr{IP: ev.Flow.TupleOrig.IP.SourceAddress.AsSlice()},
-					DstAddr: &net.IPAddr{IP: ev.Flow.TupleOrig.IP.DestinationAddress.AsSlice()},
-					SrcPort: ev.Flow.TupleOrig.Proto.SourcePort,
-					DstPort: ev.Flow.TupleOrig.Proto.DestinationPort,
-					Proto:   ev.Flow.TupleOrig.Proto.Protocol,
+				if ev.Flow.TupleOrig.Proto.Protocol != syscall.IPPROTO_TCP {
+					continue
 				}
+
+				key := ConnTupleKey{
+					Addr:  ev.Flow.TupleOrig.IP.SourceAddress.String(),
+					Port:  ev.Flow.TupleOrig.Proto.SourcePort,
+					Proto: ev.Flow.TupleOrig.Proto.Protocol,
+				}
+				value := ConnTuple{
+					Addr:  ev.Flow.TupleOrig.IP.DestinationAddress.AsSlice(),
+					Port:  ev.Flow.TupleOrig.Proto.DestinationPort,
+					Proto: ev.Flow.TupleOrig.Proto.Protocol,
+				}
+
 				cf.l.Lock()
 				if _, ok := cf.conns[key]; !ok {
-					cf.conns[key] = struct{}{}
+					cf.conns[key] = value
 				}
 				cf.l.Unlock()
 			case ev.Flow.Status.Dying():
-				key := ConnTuple{
-					SrcAddr: &net.IPAddr{IP: ev.Flow.TupleOrig.IP.SourceAddress.AsSlice()},
-					DstAddr: &net.IPAddr{IP: ev.Flow.TupleOrig.IP.DestinationAddress.AsSlice()},
-					SrcPort: ev.Flow.TupleOrig.Proto.SourcePort,
-					DstPort: ev.Flow.TupleOrig.Proto.DestinationPort,
-					Proto:   ev.Flow.TupleOrig.Proto.Protocol,
+				if ev.Flow.TupleOrig.Proto.Protocol != syscall.IPPROTO_TCP {
+					continue
 				}
+
+				key := ConnTupleKey{
+					Addr:  ev.Flow.TupleOrig.IP.SourceAddress.String(),
+					Port:  ev.Flow.TupleOrig.Proto.SourcePort,
+					Proto: ev.Flow.TupleOrig.Proto.Protocol,
+				}
+
 				cf.l.Lock()
 				delete(cf.conns, key)
 				cf.l.Unlock()
@@ -99,22 +114,23 @@ func (cf *ConntrackFlow) run() {
 	}
 }
 
-func (cf *ConntrackFlow) GetConnsState(src, dst *net.TCPAddr) (bool, error) {
-	key := ConnTuple{
-		SrcAddr: src,
-		DstAddr: dst,
-		SrcPort: uint16(src.Port),
-		DstPort: uint16(dst.Port),
-		Proto:   uint8(syscall.IPPROTO_TCP),
+func (cf *ConntrackFlow) GetConnsState(src *net.TCPAddr) (*net.TCPAddr, error) {
+	key := ConnTupleKey{
+		Addr:  src.IP.String(),
+		Port:  uint16(src.Port),
+		Proto: uint8(syscall.IPPROTO_TCP),
 	}
 
 	cf.l.RLock()
 	defer cf.l.RUnlock()
 
-	_, ok := cf.conns[key]
+	val, ok := cf.conns[key]
 	if !ok {
-		return false, fmt.Errorf("conn not found")
+		return nil, fmt.Errorf("conn not found")
 	}
 
-	return true, nil
+	return &net.TCPAddr{
+		IP:   val.Addr,
+		Port: int(val.Port),
+	}, nil
 }
