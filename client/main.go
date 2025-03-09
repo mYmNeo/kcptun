@@ -346,6 +346,17 @@ func main() {
 		log.Println("quiet:", config.Quiet)
 		log.Println("tcp:", config.TCP)
 		log.Println("pprof:", config.Pprof)
+		log.Println("conntrack:", config.UseConntrack)
+
+		var conntrackLookup ConntrackLookup
+
+		if config.UseConntrack {
+			cf, err := NewConntrackFlow()
+			if err != nil {
+				log.Fatalf("Failed to create conntrack flow: %v", err)
+			}
+			conntrackLookup = cf
+		}
 
 		// QPP parameters check
 		if config.QPP {
@@ -510,7 +521,8 @@ func main() {
 				}
 			}
 
-			go handleClient(_Q_, []byte(config.Key), muxes[idx].session, p1, config.Quiet, config.CloseWait)
+			go handleClient(_Q_, []byte(config.Key), muxes[idx].session, p1,
+				config.Quiet, config.CloseWait, conntrackLookup)
 			rr++
 		}
 	}
@@ -518,7 +530,9 @@ func main() {
 }
 
 // handleClient aggregates connection p1 on mux
-func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Session, p1 net.Conn, quiet bool, closeWait int) {
+func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Session,
+	p1 net.Conn, quiet bool, closeWait int, conntrackLookup ConntrackLookup) {
+
 	logln := func(v ...interface{}) {
 		if !quiet {
 			log.Println(v...)
@@ -542,6 +556,35 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 	if _Q_ != nil {
 		// replace s2 with QPP port
 		s2 = std.NewQPPPort(p2, _Q_, seed)
+	}
+
+	// if conntrack is enabled, we need to send socks5 handshake before sending data
+	if conntrackLookup != nil {
+		src, dst := p1.LocalAddr(), p1.RemoteAddr()
+		srcTCP, dstTCP := src.(*net.TCPAddr), dst.(*net.TCPAddr)
+		_, err := conntrackLookup.GetConnsState(srcTCP, dstTCP)
+		if err != nil {
+			logln("conntrack lookup error:", err)
+			return
+		}
+
+		defer func() {
+			s1.Close()
+			s2.Close()
+		}()
+
+		// send socks5 handshake
+		err = std.SendSocksConnectRequest(s2, dstTCP)
+		if err != nil {
+			logln("socks5 send handshake error:", err)
+			return
+		}
+
+		err = std.ReadSocksConnectResponse(s2)
+		if err != nil {
+			logln("socks5 read handshake error:", err)
+			return
+		}
 	}
 
 	// stream layer

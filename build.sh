@@ -15,20 +15,17 @@ GCFLAGS=""
 # AMD64
 OSES=(linux)
 for os in ${OSES[@]}; do
-    suffix=""
-    if [ "$os" == "windows" ]
-    then
-        suffix=".exe"
-    fi
-    env CGO_ENABLED=0 GOOS=$os GOARCH=amd64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o client_${os}_amd64${suffix} github.com/xtaci/kcptun/client
-    env CGO_ENABLED=0 GOOS=$os GOARCH=amd64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o server_${os}_amd64${suffix} github.com/xtaci/kcptun/server
+  suffix=""
+  if [[ "$os" == "windows" ]]; then
+    suffix=".exe"
+  fi
+  env CGO_ENABLED=0 GOOS=$os GOARCH=amd64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o client_${os}_amd64${suffix} github.com/xtaci/kcptun/client
+  env CGO_ENABLED=0 GOOS=$os GOARCH=amd64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o server_${os}_amd64${suffix} github.com/xtaci/kcptun/server
 done
 
 # ARM64
 OSES=(linux darwin)
 for os in ${OSES[@]}; do
-   env CGO_ENABLED=0 GOOS=$os GOARCH=arm64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o client_${os}_arm64${suffix} github.com/xtaci/kcptun/client
-   env CGO_ENABLED=0 GOOS=$os GOARCH=arm64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o server_${os}_arm64${suffix} github.com/xtaci/kcptun/server
+  env CGO_ENABLED=0 GOOS=$os GOARCH=arm64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o client_${os}_arm64${suffix} github.com/xtaci/kcptun/client
+  env CGO_ENABLED=0 GOOS=$os GOARCH=arm64 go build -pgo=auto -ldflags "$LDFLAGS" -gcflags "$GCFLAGS" -o server_${os}_arm64${suffix} github.com/xtaci/kcptun/server
 done
-
-

@@ -37,15 +37,14 @@ func TestSocksHandshake(t *testing.T) {
 		}()
 
 		// 获取目标服务器实际地址
-		targetAddr := targetListener.Addr().String()
-		addr := ParseAddr(targetAddr) // 需要临时恢复ParseAddr或手动构造
+		targetAddr := targetListener.Addr()
 
 		// 构造有效的CONNECT请求
 		go func() {
-			client.Write([]byte{5, 1, 0}) // METHODS
-			// 请求头: VER CMD RSV ATYP DST.ADDR DST.PORT
-			request := append([]byte{5, CmdConnect, 0}, addr...)
-			client.Write(request)
+			err := SendSocksConnectRequest(client, targetAddr.(*net.TCPAddr))
+			if err != nil {
+				t.Logf("Send socks connect request error: %v", err)
+			}
 		}()
 
 		conn, err := SocksHandshake(server)
