@@ -560,9 +560,10 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 
 	// if conntrack is enabled, we need to send socks5 handshake before sending data
 	if conntrackLookup != nil {
-		src, dst := p1.LocalAddr(), p1.RemoteAddr()
-		srcTCP, dstTCP := src.(*net.TCPAddr), dst.(*net.TCPAddr)
-		_, err := conntrackLookup.GetConnsState(srcTCP, dstTCP)
+		from := p1.RemoteAddr().(*net.TCPAddr)
+
+		logln("try conntrack get conns state: src: %s:%d", from.IP.String(), from.Port)
+		to, err := conntrackLookup.GetConnsState(from)
 		if err != nil {
 			logln("conntrack lookup error:", err)
 			return
@@ -573,14 +574,15 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 			s2.Close()
 		}()
 
+		logln("send socks5 connect request: dst: %s:%d", to.IP.String(), to.Port)
 		// send socks5 handshake
-		err = std.SendSocksConnectRequest(s2, dstTCP)
+		err = std.SendSocksConnectRequest(p2, to)
 		if err != nil {
 			logln("socks5 send handshake error:", err)
 			return
 		}
 
-		err = std.ReadSocksConnectResponse(s2)
+		err = std.ReadSocksConnectResponse(p2)
 		if err != nil {
 			logln("socks5 read handshake error:", err)
 			return
