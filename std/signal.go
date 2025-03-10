@@ -26,6 +26,7 @@ package std
 
 import (
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
@@ -40,7 +41,16 @@ const (
 )
 
 func init() {
+	RegisterExitHandler(postProcess)
 	go sigHandler()
+}
+
+var (
+	exitHandlers []func()
+)
+
+func RegisterExitHandler(handler func()) {
+	exitHandlers = append(exitHandlers, handler)
 }
 
 func sigHandler() {
@@ -55,7 +65,10 @@ func sigHandler() {
 		case syscall.SIGUSR1:
 			log.Printf("KCP SNMP:%+v", kcp.DefaultSnmp.Copy())
 		case syscall.SIGTERM, syscall.SIGINT:
-			postProcess()
+			for _, handler := range exitHandlers {
+				slog.Info("Running exit handler", "handler", handler)
+				handler()
+			}
 			signal.Stop(ch)
 			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 

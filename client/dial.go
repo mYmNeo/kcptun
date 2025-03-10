@@ -29,12 +29,13 @@ import (
 
 	"github.com/pkg/errors"
 	kcp "github.com/xtaci/kcp-go/v5"
+	"github.com/xtaci/kcptun/config/client"
 	"github.com/xtaci/kcptun/std"
 	"github.com/xtaci/tcpraw"
 )
 
 // dial connects to the remote address
-func dial(config *Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
+func dial(config *client.Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
 	randIdx := rand.Intn(len(config.RemoteAddrs))
 	mp, err := std.ParseMultiPort(config.RemoteAddrs[randIdx])
 	if err != nil {

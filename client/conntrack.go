@@ -10,6 +10,14 @@ import (
 // 2. -A POSTROUTING -s <dhcp-range> -j MASQUERADE
 // example: -A POSTROUTING -s 192.168.1.0/24 -j MASQUERADE
 
+type ConnTupleKey struct {
+	Addr  string
+	Port  uint16
+	Proto uint8
+}
+
+type ConnTupleKeyFilter func(key ConnTupleKey) bool
+
 type ConntrackLookup interface {
 	GetConnsState(src *net.TCPAddr) (*net.TCPAddr, error)
 }
