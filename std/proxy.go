@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -150,7 +150,7 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 	case CmdConnect:
 		_, _ = rw.Write(connectSuccessReply)
 
-		log.Println("Connecting to", addr.String())
+		slog.Info("Connecting", "addr", addr.String())
 
 		rc, err := net.Dial("tcp", addr.String())
 		if err != nil {

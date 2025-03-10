@@ -4,6 +4,6 @@ package main
 
 import "errors"
 
-func NewConntrackFlow() (ConntrackLookup, error) {
+func NewConntrackFlow(filters []ConnTupleKeyFilter) (ConntrackLookup, error) {
 	return nil, errors.New("not implemented")
 }

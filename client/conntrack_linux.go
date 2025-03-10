@@ -4,22 +4,23 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
-	"sync"
 	"syscall"
+	"time"
 
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/mdlayher/netlink"
 	"github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
 )
 
 type ConntrackFlow struct {
-	conn   *conntrack.Conn
-	evChan chan conntrack.Event
-	errCh  chan error
-	l      sync.RWMutex
-	conns  map[ConnTupleKey]ConnTuple
+	conn    *conntrack.Conn
+	evChan  chan conntrack.Event
+	errCh   chan error
+	conns   *ttlcache.Cache[ConnTupleKey, ConnTuple]
+	filters []ConnTupleKeyFilter
 }
 
 type ConnTuple struct {
@@ -28,37 +29,32 @@ type ConnTuple struct {
 	Proto uint8
 }
 
-type ConnTupleKey struct {
-	Addr  string
-	Port  uint16
-	Proto uint8
-}
-
-func NewConntrackFlow() (*ConntrackFlow, error) {
+func NewConntrackFlow(filters []ConnTupleKeyFilter) (*ConntrackFlow, error) {
 	conn, err := conntrack.Dial(nil)
 	if err != nil {
-		log.Printf("Dial conntrack failed: %v", err)
+		slog.Error("Dial conntrack", "error", err)
 		return nil, err
 	}
 
 	evChan := make(chan conntrack.Event, 1024)
-	errCh, err := conn.Listen(evChan, 1, append(netfilter.GroupsCT, netfilter.GroupsCTExp...))
+	errCh, err := conn.Listen(evChan, 8, append(netfilter.GroupsCT, netfilter.GroupsCTExp...))
 	if err != nil {
-		log.Printf("Listen conntrack failed: %v", err)
+		slog.Error("Listen conntrack", "error", err)
 		return nil, err
 	}
 
 	err = conn.SetOption(netlink.ListenAllNSID, true)
 	if err != nil {
-		log.Printf("Set option conntrack failed: %v", err)
+		slog.Error("Set option conntrack", "error", err)
 		return nil, err
 	}
 
 	cf := &ConntrackFlow{
-		conn:   conn,
-		evChan: evChan,
-		errCh:  errCh,
-		conns:  make(map[ConnTupleKey]ConnTuple),
+		conn:    conn,
+		evChan:  evChan,
+		errCh:   errCh,
+		conns:   ttlcache.New(ttlcache.WithTTL[ConnTupleKey, ConnTuple](time.Minute)),
+		filters: filters,
 	}
 
 	go cf.run()
@@ -67,48 +63,51 @@ func NewConntrackFlow() (*ConntrackFlow, error) {
 }
 
 func (cf *ConntrackFlow) run() {
-	log.Printf("ConntrackFlow started")
+	slog.Info("ConntrackFlow started")
 	for {
+	NEXT_LOOP:
 		select {
 		case err := <-cf.errCh:
-			log.Printf("Error: %v", err)
+			slog.Error("Flow error", "error", err)
 		case ev := <-cf.evChan:
 			switch {
-			case ev.Flow.Status.Assured():
-				if ev.Flow.TupleOrig.Proto.Protocol != syscall.IPPROTO_TCP {
-					continue
-				}
-
+			case ev.Type == conntrack.EventNew || ev.Type == conntrack.EventUpdate:
 				key := ConnTupleKey{
 					Addr:  ev.Flow.TupleOrig.IP.SourceAddress.String(),
 					Port:  ev.Flow.TupleOrig.Proto.SourcePort,
 					Proto: ev.Flow.TupleOrig.Proto.Protocol,
 				}
+
+				for _, filter := range cf.filters {
+					if filter(key) {
+						goto NEXT_LOOP
+					}
+				}
+
 				value := ConnTuple{
 					Addr:  ev.Flow.TupleOrig.IP.DestinationAddress.AsSlice(),
 					Port:  ev.Flow.TupleOrig.Proto.DestinationPort,
 					Proto: ev.Flow.TupleOrig.Proto.Protocol,
 				}
 
-				cf.l.Lock()
-				if _, ok := cf.conns[key]; !ok {
-					cf.conns[key] = value
-				}
-				cf.l.Unlock()
-			case ev.Flow.Status.Dying():
-				if ev.Flow.TupleOrig.Proto.Protocol != syscall.IPPROTO_TCP {
-					continue
-				}
-
+				slog.Debug("conntrack assured",
+					"src", key.Addr, "port", key.Port, "proto", key.Proto, "timeout", ev.Flow.Timeout)
+				cf.conns.Set(key, value, time.Duration(ev.Flow.Timeout)*time.Second)
+			case ev.Type == conntrack.EventDestroy:
 				key := ConnTupleKey{
 					Addr:  ev.Flow.TupleOrig.IP.SourceAddress.String(),
 					Port:  ev.Flow.TupleOrig.Proto.SourcePort,
 					Proto: ev.Flow.TupleOrig.Proto.Protocol,
 				}
 
-				cf.l.Lock()
-				delete(cf.conns, key)
-				cf.l.Unlock()
+				for _, filter := range cf.filters {
+					if filter(key) {
+						goto NEXT_LOOP
+					}
+				}
+
+				slog.Debug("conntrack die", "src", key.Addr, "port", key.Port, "proto", key.Proto)
+				cf.conns.Delete(key)
 			}
 		}
 	}
@@ -121,16 +120,13 @@ func (cf *ConntrackFlow) GetConnsState(src *net.TCPAddr) (*net.TCPAddr, error) {
 		Proto: uint8(syscall.IPPROTO_TCP),
 	}
 
-	cf.l.RLock()
-	defer cf.l.RUnlock()
-
-	val, ok := cf.conns[key]
-	if !ok {
+	item := cf.conns.Get(key)
+	if item == nil || item.IsExpired() {
 		return nil, fmt.Errorf("conn not found")
 	}
 
 	return &net.TCPAddr{
-		IP:   val.Addr,
-		Port: int(val.Port),
+		IP:   item.Value().Addr,
+		Port: int(item.Value().Port),
 	}, nil
 }

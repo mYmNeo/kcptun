@@ -1,9 +1,13 @@
 module github.com/xtaci/kcptun
 
 require (
+	github.com/OneYX/v2ray-core v0.0.0
+	github.com/coreos/go-iptables v0.8.0
 	github.com/fatih/color v1.18.0
 	github.com/golang/snappy v1.0.0
+	github.com/jellydator/ttlcache/v3 v3.3.0
 	github.com/mdlayher/netlink v1.7.2
+	github.com/miekg/dns v1.1.63
 	github.com/pkg/errors v0.9.1
 	github.com/ti-mo/conntrack v0.5.1
 	github.com/ti-mo/netfilter v0.5.2
@@ -16,7 +20,6 @@ require (
 )
 
 require (
-	github.com/coreos/go-iptables v0.7.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/gopacket v1.1.19 // indirect
@@ -28,13 +31,18 @@ require (
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
+	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/tools v0.22.0 // indirect
 )
 
-replace github.com/xtaci/tcpraw => ./staging/github.com/xtaci/tcpraw
+replace (
+	github.com/OneYX/v2ray-core => ./staging/github.com/OneYX/v2ray-core
+	github.com/xtaci/tcpraw => ./staging/github.com/xtaci/tcpraw
+)
 
-go 1.23.0
+go 1.24.1
 
 toolchain go1.24.2

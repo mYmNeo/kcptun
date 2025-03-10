@@ -23,15 +23,18 @@
 package main
 
 import (
+	"context"
 	"crypto/sha1"
-	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"runtime"
+	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -40,6 +43,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 	kcp "github.com/xtaci/kcp-go/v5"
+	"github.com/xtaci/kcptun/config/client"
 	"github.com/xtaci/kcptun/std"
 	"github.com/xtaci/qpp"
 	"github.com/xtaci/smux"
@@ -60,11 +64,6 @@ var (
 var VERSION = "SELFBUILD"
 
 func main() {
-	if VERSION == "SELFBUILD" {
-		// add more log flags for debugging
-		log.SetFlags(log.LstdFlags | log.Lshortfile)
-	}
-
 	myApp := cli.NewApp()
 	myApp.Name = "kcptun"
 	myApp.Usage = "client(with SMUX)"
@@ -243,7 +242,7 @@ func main() {
 		},
 	}
 	myApp.Action = func(c *cli.Context) error {
-		config := Config{}
+		config := client.Config{}
 		config.LocalAddr = c.String("localaddr")
 		config.RemoteAddrs = c.StringSlice("remoteaddrs")
 		config.Key = c.String("key")
@@ -269,10 +268,8 @@ func main() {
 		config.StreamBuf = c.Int("streambuf")
 		config.SmuxVer = c.Int("smuxver")
 		config.KeepAlive = c.Int("keepalive")
-		config.Log = c.String("log")
 		config.SnmpLog = c.String("snmplog")
 		config.SnmpPeriod = c.Int("snmpperiod")
-		config.Quiet = c.Bool("quiet")
 		config.TCP = c.Bool("tcp")
 		config.Pprof = c.Bool("pprof")
 		config.QPP = c.Bool("QPP")
@@ -280,17 +277,28 @@ func main() {
 		config.CloseWait = c.Int("closewait")
 
 		if c.String("c") != "" {
-			err := parseJSONConfig(&config, c.String("c"))
-			checkError(err)
+			err := client.ParseJSONConfig(&config, c.String("c"))
+			checkError(err, "parseJSONConfig", "error", err)
 		}
 
-		// log redirect
-		if config.Log != "" {
-			f, err := os.OpenFile(config.Log, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-			checkError(err)
-			defer f.Close()
-			log.SetOutput(f)
+		var level slog.Level
+		switch strings.ToUpper(config.LogLevel) {
+		case "DEBUG":
+			level = slog.LevelDebug
+		case "INFO":
+			level = slog.LevelInfo
+		case "WARN":
+			level = slog.LevelWarn
+		case "ERROR":
+			level = slog.LevelError
+		default:
+			level = slog.LevelInfo
 		}
+
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			AddSource: level == slog.LevelDebug,
+			Level:     level,
+		})))
 
 		switch config.Mode {
 		case "normal":
@@ -303,7 +311,7 @@ func main() {
 			config.NoDelay, config.Interval, config.Resend, config.NoCongestion = 1, 10, 2, 1
 		}
 
-		log.Println("version:", VERSION)
+		slog.Info("kcptun", "version", VERSION)
 		var listener net.Listener
 		var isUnix bool
 		if _, _, err := net.SplitHostPort(config.LocalAddr); err != nil {
@@ -311,51 +319,91 @@ func main() {
 		}
 		if isUnix {
 			addr, err := net.ResolveUnixAddr("unix", config.LocalAddr)
-			checkError(err)
+			checkError(err, "ResolveUnixAddr", "error", err)
 			listener, err = net.ListenUnix("unix", addr)
-			checkError(err)
+			checkError(err, "ListenUnix", "error", err)
 		} else {
 			addr, err := net.ResolveTCPAddr("tcp", config.LocalAddr)
-			checkError(err)
+			checkError(err, "ResolveTCPAddr", "error", err)
 			listener, err = net.ListenTCP("tcp", addr)
-			checkError(err)
+			checkError(err, "ListenTCP", "error", err)
 		}
 
-		log.Println("smux version:", config.SmuxVer)
-		log.Println("listening on:", listener.Addr())
-		log.Println("encryption:", config.Crypt)
-		log.Println("QPP:", config.QPP)
-		log.Println("QPP Count:", config.QPPCount)
-		log.Println("nodelay parameters:", config.NoDelay, config.Interval, config.Resend, config.NoCongestion)
-		log.Println("remote addresses:", config.RemoteAddrs)
-		log.Println("sndwnd:", config.SndWnd, "rcvwnd:", config.RcvWnd)
-		log.Println("compression:", !config.NoComp)
-		log.Println("mtu:", config.MTU)
-		log.Println("datashard:", config.DataShard, "parityshard:", config.ParityShard)
-		log.Println("acknodelay:", config.AckNodelay)
-		log.Println("dscp:", config.DSCP)
-		log.Println("sockbuf:", config.SockBuf)
-		log.Println("smuxbuf:", config.SmuxBuf)
-		log.Println("streambuf:", config.StreamBuf)
-		log.Println("keepalive:", config.KeepAlive)
-		log.Println("conn:", config.Conn)
-		log.Println("autoexpire:", config.AutoExpire)
-		log.Println("scavengettl:", config.ScavengeTTL)
-		log.Println("snmplog:", config.SnmpLog)
-		log.Println("snmpperiod:", config.SnmpPeriod)
-		log.Println("quiet:", config.Quiet)
-		log.Println("tcp:", config.TCP)
-		log.Println("pprof:", config.Pprof)
-		log.Println("conntrack:", config.UseConntrack)
+		slog.Info("config", "smux version", config.SmuxVer)
+		slog.Info("config", "listening addr", listener.Addr())
+		slog.Info("config", "encryption", config.Crypt)
+		slog.Info("config", "QPP", config.QPP)
+		slog.Info("config", "QPP Count", config.QPPCount)
+		slog.Info("config", "nodelay", config.NoDelay, "interval", config.Interval, "resend", config.Resend, "noCongestion", config.NoCongestion)
+		slog.Info("config", "remote addresses", config.RemoteAddrs)
+		slog.Info("config", "sndwnd", config.SndWnd, "rcvwnd", config.RcvWnd)
+		slog.Info("config", "compression", !config.NoComp)
+		slog.Info("config", "mtu", config.MTU)
+		slog.Info("config", "datashard", config.DataShard, "parityshard", config.ParityShard)
+		slog.Info("config", "acknodelay", config.AckNodelay)
+		slog.Info("config", "dscp", config.DSCP)
+		slog.Info("config", "sockbuf", config.SockBuf)
+		slog.Info("config", "smuxbuf", config.SmuxBuf)
+		slog.Info("config", "streambuf", config.StreamBuf)
+		slog.Info("config", "keepalive", config.KeepAlive)
+		slog.Info("config", "conn", config.Conn)
+		slog.Info("config", "autoexpire", config.AutoExpire)
+		slog.Info("config", "scavengettl", config.ScavengeTTL)
+		slog.Info("config", "snmplog", config.SnmpLog)
+		slog.Info("config", "snmpperiod", config.SnmpPeriod)
+		slog.Info("config", "tcp", config.TCP)
+		slog.Info("config", "pprof", config.Pprof)
+		slog.Info("config", "conntrack", config.UseConntrack)
+		if config.DNSConfig != nil {
+			slog.Info("config", "use-dns", config.DNSConfig.UseDNS)
+			slog.Info("config", "local-ifname", config.DNSConfig.LocalInterfaceName)
+			slog.Info("config", "local-protocol", config.DNSConfig.LocalProtocol)
+			slog.Info("config", "local-port", config.DNSConfig.LocalDNSPort)
+			slog.Info("config", "remote-dns-addr", config.DNSConfig.RemoteDNSAddr)
+			slog.Info("config", "gfwlist-urls", config.DNSConfig.GFWListURLs)
+			slog.Info("config", "gfwlist-files", config.DNSConfig.GFWListFiles)
+			slog.Info("config", "cache-ttl", config.DNSConfig.CacheTTL)
+			slog.Info("config", "iptables-path", config.DNSConfig.IPTablesPath)
+		}
 
 		var conntrackLookup ConntrackLookup
-
-		if config.UseConntrack {
-			cf, err := NewConntrackFlow()
+		if config.DNSConfig != nil && config.DNSConfig.UseDNS {
+			dnsLookup, err := std.NewDNSServer(config.DNSConfig, config.LocalAddr)
 			if err != nil {
-				log.Fatalf("Failed to create conntrack flow: %v", err)
+				slog.Error("Create dns server", "error", err)
+				os.Exit(-1)
 			}
-			conntrackLookup = cf
+
+			go func() {
+				defer dnsLookup.Stop()
+
+				if err := dnsLookup.Start(); err != nil {
+					dnsLookup.Stop()
+					checkError(err, "Start dns server", "error", err)
+				}
+			}()
+
+			if config.UseConntrack {
+				localCIDR, err := std.GetRouteTable(config.DNSConfig.LocalInterfaceName)
+				if err != nil {
+					checkError(err, "GetRouteTable", "error", err)
+				}
+
+				_, ipNet, _ := net.ParseCIDR(localCIDR)
+
+				cf, err := NewConntrackFlow([]ConnTupleKeyFilter{
+					func(key ConnTupleKey) bool {
+						return key.Proto != syscall.IPPROTO_TCP || key.Port == 53
+					},
+					func(key ConnTupleKey) bool {
+						return !ipNet.Contains(net.ParseIP(key.Addr))
+					},
+				})
+				if err != nil {
+					checkError(err, "Create conntrack flow", "error", err)
+				}
+				conntrackLookup = cf
+			}
 		}
 
 		// QPP parameters check
@@ -383,12 +431,12 @@ func main() {
 
 		// SMUX Version check
 		if config.SmuxVer > maxSmuxVer {
-			log.Fatal("unsupported smux version:", config.SmuxVer)
+			checkError(errors.New("unsupported"), "smux version", config.SmuxVer)
 		}
 
-		log.Println("initiating key derivation")
+		slog.Info("initiating key derivation")
 		pass := pbkdf2.Key([]byte(config.Key), []byte(SALT), 4096, 32, sha1.New)
-		log.Println("key derivation done")
+		slog.Info("key derivation done")
 		var block kcp.BlockCrypt
 		switch config.Crypt {
 		case "null":
@@ -435,15 +483,15 @@ func main() {
 			kcpconn.SetACKNoDelay(config.AckNodelay)
 
 			if err := kcpconn.SetDSCP(config.DSCP); err != nil {
-				log.Println("SetDSCP:", err)
+				slog.Error("SetDSCP", "error", err)
 			}
 			if err := kcpconn.SetReadBuffer(config.SockBuf); err != nil {
-				log.Println("SetReadBuffer:", err)
+				slog.Error("SetReadBuffer", "error", err)
 			}
 			if err := kcpconn.SetWriteBuffer(config.SockBuf); err != nil {
-				log.Println("SetWriteBuffer:", err)
+				slog.Error("SetWriteBuffer", "error", err)
 			}
-			log.Println("smux version:", config.SmuxVer, "on connection:", kcpconn.LocalAddr(), "->", kcpconn.RemoteAddr())
+			slog.Info("smux version", "version", config.SmuxVer, "localAddr", kcpconn.LocalAddr(), "remoteAddr", kcpconn.RemoteAddr())
 			smuxConfig := smux.DefaultConfig()
 			smuxConfig.Version = config.SmuxVer
 			smuxConfig.MaxReceiveBuffer = config.SmuxBuf
@@ -451,7 +499,7 @@ func main() {
 			smuxConfig.KeepAliveInterval = time.Duration(config.KeepAlive) * time.Second
 
 			if err := smux.VerifyConfig(smuxConfig); err != nil {
-				log.Fatalf("%+v", err)
+				checkError(err, "VerifyConfig", "error", err)
 			}
 
 			// stream multiplex
@@ -473,7 +521,7 @@ func main() {
 				if session, err := createConn(); err == nil {
 					return session
 				} else {
-					log.Println("re-connecting:", err)
+					slog.Info("re-connecting", "error", err)
 					time.Sleep(time.Second)
 				}
 			}
@@ -507,7 +555,7 @@ func main() {
 		for {
 			p1, err := listener.Accept()
 			if err != nil {
-				log.Fatalf("%+v", err)
+				checkError(err, "Accept", "error", err)
 			}
 			idx := rr % numconn
 
@@ -521,8 +569,7 @@ func main() {
 				}
 			}
 
-			go handleClient(_Q_, []byte(config.Key), muxes[idx].session, p1,
-				config.Quiet, config.CloseWait, conntrackLookup)
+			go handleClient(_Q_, []byte(config.Key), muxes[idx].session, p1, config.CloseWait, conntrackLookup)
 			rr++
 		}
 	}
@@ -530,26 +577,24 @@ func main() {
 }
 
 // handleClient aggregates connection p1 on mux
-func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Session,
-	p1 net.Conn, quiet bool, closeWait int, conntrackLookup ConntrackLookup) {
-
-	logln := func(v ...interface{}) {
-		if !quiet {
-			log.Println(v...)
-		}
-	}
+func handleClient(_Q_ *qpp.QuantumPermutationPad,
+	seed []byte,
+	session *smux.Session,
+	p1 net.Conn,
+	closeWait int,
+	conntrackLookup ConntrackLookup) {
 
 	// handles transport layer
 	defer p1.Close()
 	p2, err := session.OpenStream()
 	if err != nil {
-		logln(err)
+		slog.Debug("OpenStream", "error", err)
 		return
 	}
 	defer p2.Close()
 
-	logln("stream opened", "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
-	defer logln("stream closed", "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
+	slog.Debug("stream opened", "in", p1.RemoteAddr(), "out", p2.RemoteAddr(), "id", p2.ID())
+	defer slog.Debug("stream closed", "in", p1.RemoteAddr(), "out", p2.RemoteAddr(), "id", p2.ID())
 
 	var s1, s2 io.ReadWriteCloser = p1, p2
 	// if QPP is enabled, create QPP read write closer
@@ -562,10 +607,18 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 	if conntrackLookup != nil {
 		from := p1.RemoteAddr().(*net.TCPAddr)
 
-		logln("try conntrack get conns state: src: %s:%d", from.IP.String(), from.Port)
-		to, err := conntrackLookup.GetConnsState(from)
-		if err != nil {
-			logln("conntrack lookup error:", err)
+		slog.Debug("conntrack conns state", "src-ip", from.IP.String(), "src-port", from.Port)
+		var to *net.TCPAddr
+		for range [3]int{} {
+			to, err = conntrackLookup.GetConnsState(from)
+			if err == nil {
+				break
+			}
+			time.Sleep(time.Millisecond * 100)
+		}
+
+		if to == nil {
+			slog.Debug("conntrack lookup", "error", err)
 			return
 		}
 
@@ -574,17 +627,17 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 			s2.Close()
 		}()
 
-		logln("send socks5 connect request: dst: %s:%d", to.IP.String(), to.Port)
+		slog.Debug("send socks5 connect request", "dst-ip", to.IP.String(), "dst-port", to.Port)
 		// send socks5 handshake
 		err = std.SendSocksConnectRequest(p2, to)
 		if err != nil {
-			logln("socks5 send handshake error:", err)
+			slog.Debug("socks5 send handshake", "error", err)
 			return
 		}
 
 		err = std.ReadSocksConnectResponse(p2)
 		if err != nil {
-			logln("socks5 read handshake error:", err)
+			slog.Debug("socks5 read handshake", "error", err)
 			return
 		}
 	}
@@ -594,16 +647,23 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 
 	// handles transport layer errors
 	if err1 != nil && err1 != io.EOF {
-		logln("pipe:", err1, "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
+		slog.Debug("pipe", "error", err1, "in", p1.RemoteAddr(), "out", p2.RemoteAddr(), "id", p2.ID())
 	}
 	if err2 != nil && err2 != io.EOF {
-		logln("pipe:", err2, "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
+		slog.Debug("pipe", "error", err2, "in", p1.RemoteAddr(), "out", p2.RemoteAddr(), "id", p2.ID())
 	}
 }
 
-func checkError(err error) {
+func checkError(err error, msg string, args ...any) {
 	if err != nil {
-		log.Printf("%+v\n", err)
+		var pc uintptr
+		var pcs [1]uintptr
+		// skip [runtime.Callers, this function, this function's caller]
+		runtime.Callers(2, pcs[:])
+		pc = pcs[0]
+		r := slog.NewRecord(time.Now(), slog.LevelError, msg, pc)
+		r.Add(args...)
+		slog.Default().Handler().Handle(context.Background(), r)
 		os.Exit(-1)
 	}
 }
@@ -615,7 +675,7 @@ type timedSession struct {
 }
 
 // scavenger goroutine is used to close expired sessions
-func scavenger(ch chan timedSession, config *Config) {
+func scavenger(ch chan timedSession, config *client.Config) {
 	ticker := time.NewTicker(scavengePeriod * time.Second)
 	defer ticker.Stop()
 	var sessionList []timedSession
@@ -630,10 +690,10 @@ func scavenger(ch chan timedSession, config *Config) {
 			for k := range sessionList {
 				s := sessionList[k]
 				if s.session.IsClosed() {
-					log.Println("scavenger: session normally closed:", s.session.LocalAddr())
+					slog.Info("session normally closed", "addr", s.session.LocalAddr())
 				} else if time.Now().After(s.expiryDate) {
 					s.session.Close()
-					log.Println("scavenger: session closed due to ttl:", s.session.LocalAddr())
+					slog.Info("session closed due to ttl", "addr", s.session.LocalAddr())
 				} else {
 					newList = append(newList, sessionList[k])
 				}
