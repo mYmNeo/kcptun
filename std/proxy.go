@@ -75,6 +75,7 @@ func (a Addr) String() string {
 
 var (
 	connectSuccessReply = []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+	emptyBuffer = make([]byte, MaxAddrLen+3)
 )
 
 type bufferItem struct {
@@ -123,6 +124,7 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 	bufItem := bufferPool.Get().(*bufferItem)
 	defer bufferPool.Put(bufItem)
 
+	copy(bufItem.buf, emptyBuffer)
 	// read VER, NMETHODS, METHODS
 	if _, err := io.ReadFull(rw, bufItem.buf[:2]); err != nil {
 		return nil, err
@@ -173,6 +175,7 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 		bufItem := bufferPool.Get().(*bufferItem)
 		defer bufferPool.Put(bufItem)
 
+		copy(bufItem.buf, emptyBuffer)
 		var listenAddr Addr
 		ip := tcpAddr.IP.To4()
 		if ip != nil {
@@ -196,6 +199,7 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 		replyBuf := bufferPool.Get().(*bufferItem)
 		defer bufferPool.Put(replyBuf)
 
+		copy(bufItem.buf, emptyBuffer)
 		replyBuf.buf[0] = 5
 		replyBuf.buf[1] = 0
 		replyBuf.buf[2] = 0
@@ -217,6 +221,7 @@ func SendSocksConnectRequest(rw io.ReadWriter, addr *net.TCPAddr) error {
 	bufItem := bufferPool.Get().(*bufferItem)
 	defer bufferPool.Put(bufItem)
 
+	copy(bufItem.buf, emptyBuffer)
 	// Prepare SOCKS5 CONNECT request
 	bufItem.buf[0] = 5 // SOCKS5 version
 	bufItem.buf[1] = 1 // NMETHODS command
@@ -267,6 +272,7 @@ func ReadSocksConnectResponse(rw io.ReadWriter) error {
 	bufItem := bufferPool.Get().(*bufferItem)
 	defer bufferPool.Put(bufItem)
 
+	copy(bufItem.buf, emptyBuffer)
 	// Read response
 	// 0x5, 0x0, 0x5, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0
 	n, err := io.ReadFull(rw, bufItem.buf[:len(connectSuccessReply)+2])
