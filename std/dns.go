@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OneYX/v2ray-core/tools/gfwlist"
@@ -27,8 +28,7 @@ const (
 // DNSServer represents a DNS server
 type DNSServer struct {
 	server    *dns.Server
-	client    *dns.Client
-	remoteIP  string
+	client    DNSClient
 	localIP   string
 	localCIDR string
 	proxyPort string
@@ -38,6 +38,12 @@ type DNSServer struct {
 
 	routerRules RouterRules
 	dnsConfig   *cfg_dns.DNSConfig
+}
+
+type DNSClient struct {
+	lock     sync.Mutex
+	cli      *dns.Client
+	remoteIP string
 }
 
 type RouterRules struct {
@@ -107,11 +113,13 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 		if err != nil {
 			return nil, fmt.Errorf("invalid remote address: %s", err)
 		}
-		server.remoteIP = remoteIP
-		server.client = &dns.Client{
+		server.client.remoteIP = remoteIP
+		server.client.cli = &dns.Client{
 			Net:     remoteNetwork,
-			Timeout: 10 * time.Second,
 			UDPSize: dns.MaxMsgSize,
+			Dialer: &net.Dialer{
+				Timeout: 10 * time.Second,
+			},
 		}
 
 		gfwList, err := gfwlist.NewGFWList(cfg.GFWListURLs, cfg.GFWListFiles)
@@ -325,7 +333,7 @@ func (s *DNSServer) Stop() error {
 }
 
 func (s *DNSServer) ListenerOnly() bool {
-	return s.client == nil
+	return s.client.cli == nil
 }
 
 // handleDNSRequest handles incoming DNS requests
@@ -339,9 +347,6 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	for _, q := range r.Question {
 		answer := s.recordCache.Get(q)
 		if answer != nil && !answer.IsExpired() {
-			if s.isBlocked(q.Name) {
-				s.AddGFWFilterIP(answer.Value())
-			}
 			m.Answer = append(m.Answer, answer.Value()...)
 			continue
 		}
@@ -460,13 +465,30 @@ func (s *DNSServer) resolveFromRemote(q dns.Question) []dns.RR {
 	req := new(dns.Msg)
 	req.SetQuestion(q.Name, q.Qtype)
 	req.RecursionDesired = true
+	req.SetEdns0(dns.MaxMsgSize, true)
+
+	s.client.lock.Lock()
+	defer s.client.lock.Unlock()
 
 	slog.Debug("Remote DNS Query", "name", q.Name, "type", dns.TypeToString[q.Qtype])
-	resp, _, err := s.client.Exchange(req, s.remoteIP)
-	if err != nil {
+	var (
+		resp *dns.Msg
+		err  error
+	)
+
+	// try max 3 times
+	for i := 0; i < 3; i++ {
+		resp, _, err = s.client.cli.Exchange(req, s.client.remoteIP)
+		if err == nil {
+			break
+		}
+
 		if err != io.EOF {
 			slog.Error("DNS query", "error", err)
 		}
+	}
+
+	if err != nil {
 		return nil
 	}
 
