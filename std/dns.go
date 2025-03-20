@@ -2,6 +2,7 @@ package std
 
 import (
 	"bufio"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -10,13 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/OneYX/v2ray-core/tools/gfwlist"
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/miekg/dns"
+	"golang.org/x/time/rate"
 
 	cfg_dns "github.com/xtaci/kcptun/config/dns"
 )
@@ -41,7 +42,7 @@ type DNSServer struct {
 }
 
 type DNSClient struct {
-	lock     sync.Mutex
+	limiter  *rate.Limiter
 	cli      *dns.Client
 	remoteIP string
 }
@@ -86,12 +87,10 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 
 	server := &DNSServer{
 		server: &dns.Server{
-			Addr:         fmt.Sprintf("%s:%d", localIP, cfg.LocalDNSPort),
-			Net:          cfg.LocalProtocol,
-			ReusePort:    true,
-			ReuseAddr:    true,
-			ReadTimeout:  10 * time.Second,
-			WriteTimeout: 10 * time.Second,
+			Addr:      fmt.Sprintf("%s:%d", localIP, cfg.LocalDNSPort),
+			Net:       cfg.LocalProtocol,
+			ReusePort: true,
+			ReuseAddr: true,
 		},
 		recordCache: ttlcache.New(ttlcache.WithTTL[dns.Question, []dns.RR](time.Duration(cfg.CacheTTL) * time.Second)),
 		dnsConfig:   cfg,
@@ -121,6 +120,18 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 				Timeout: 10 * time.Second,
 			},
 		}
+
+		var (
+			qpsLimit   = 128
+			burstLimit = 32
+		)
+		if cfg.QPSLimit > 0 {
+			qpsLimit = cfg.QPSLimit
+		}
+		if cfg.BurstLimit > 0 {
+			burstLimit = cfg.BurstLimit
+		}
+		server.client.limiter = rate.NewLimiter(rate.Limit(qpsLimit), burstLimit)
 
 		gfwList, err := gfwlist.NewGFWList(cfg.GFWListURLs, cfg.GFWListFiles)
 		if err != nil {
@@ -467,9 +478,7 @@ func (s *DNSServer) resolveFromRemote(q dns.Question) []dns.RR {
 	req.RecursionDesired = true
 	req.SetEdns0(dns.MaxMsgSize, true)
 
-	s.client.lock.Lock()
-	defer s.client.lock.Unlock()
-
+	s.client.limiter.Wait(context.Background())
 	slog.Debug("Remote DNS Query", "name", q.Name, "type", dns.TypeToString[q.Qtype])
 	var (
 		resp *dns.Msg

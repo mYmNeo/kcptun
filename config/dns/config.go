@@ -10,4 +10,6 @@ type DNSConfig struct {
 	GFWListFiles       []string `json:"gfwlist-files"`
 	CacheTTL           int      `json:"cache-ttl"`
 	IPTablesPath       string   `json:"iptables-path"`
+	QPSLimit           int      `json:"qps-limit"`
+	BurstLimit         int      `json:"burst-limit"`
 }
