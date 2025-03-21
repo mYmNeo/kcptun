@@ -368,6 +368,16 @@ func main() {
 
 		var conntrackLookup ConntrackLookup
 		if config.DNSConfig != nil && config.DNSConfig.UseDNS {
+			if config.DNSConfig.ConnPoolSize == 0 {
+				config.DNSConfig.ConnPoolSize = 8
+			}
+			if config.DNSConfig.QPSLimit == 0 {
+				config.DNSConfig.QPSLimit = config.DNSConfig.ConnPoolSize
+			}
+			if config.DNSConfig.BurstLimit == 0 {
+				config.DNSConfig.BurstLimit = 1
+			}
+
 			dnsLookup, err := std.NewDNSServer(config.DNSConfig, config.LocalAddr)
 			if err != nil {
 				slog.Error("Create dns server", "error", err)
@@ -603,43 +613,46 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad,
 		s2 = std.NewQPPPort(p2, _Q_, seed)
 	}
 
+	defer func() {
+		s1.Close()
+		s2.Close()
+	}()
+
+
 	// if conntrack is enabled, we need to send socks5 handshake before sending data
 	if conntrackLookup != nil {
 		from := p1.RemoteAddr().(*net.TCPAddr)
 
 		slog.Debug("conntrack conns state", "src-ip", from.IP.String(), "src-port", from.Port)
 		var to *net.TCPAddr
-		for range [3]int{} {
-			to, err = conntrackLookup.GetConnsState(from)
-			if err == nil {
-				break
+
+		func() {
+			for range [3]int{} {
+				to, err = conntrackLookup.GetConnsState(from)
+				if err == nil {
+					break
+				}
+				time.Sleep(time.Millisecond * 100)
 			}
-			time.Sleep(time.Millisecond * 100)
-		}
 
-		if to == nil {
-			slog.Debug("conntrack lookup", "error", err)
-			return
-		}
+			if to == nil {
+				slog.Warn("Fallback to direct connection", "error", err)
+				return
+			}
+			slog.Debug("send socks5 connect request", "dst-ip", to.IP.String(), "dst-port", to.Port)
+			// send socks5 handshake
+			err = std.SendSocksConnectRequest(p2, to)
+			if err != nil {
+				slog.Debug("socks5 send handshake", "error", err)
+				return
+			}
 
-		defer func() {
-			s1.Close()
-			s2.Close()
+			err = std.ReadSocksConnectResponse(p2)
+			if err != nil {
+				slog.Debug("socks5 read handshake", "error", err)
+				return
+			}
 		}()
-
-		slog.Debug("send socks5 connect request", "dst-ip", to.IP.String(), "dst-port", to.Port)
-		// send socks5 handshake
-		err = std.SendSocksConnectRequest(p2, to)
-		if err != nil {
-			slog.Debug("socks5 send handshake", "error", err)
-			return
-		}
-
-		err = std.ReadSocksConnectResponse(p2)
-		if err != nil {
-			slog.Debug("socks5 read handshake", "error", err)
-			return
-		}
 	}
 
 	// stream layer
