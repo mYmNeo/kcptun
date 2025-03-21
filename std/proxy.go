@@ -150,13 +150,12 @@ func SocksHandshake(rw io.ReadWriter) (net.Conn, error) {
 	case CmdConnect:
 		_, _ = rw.Write(connectSuccessReply)
 
-		slog.Info("Connecting", "addr", addr.String())
-
 		rc, err := net.Dial("tcp", addr.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to target: %v", err)
 		}
 
+		slog.Info("Connected", "addr", addr.String())
 		return rc, nil
 	case CmdUDPAssociate:
 		if !UDPEnabled {
@@ -288,5 +287,6 @@ func ReadSocksConnectResponse(rw io.ReadWriter) error {
 		return errors.New("socks5 connect request failed")
 	}
 
+	slog.Debug("sock5 connected")
 	return nil
 }

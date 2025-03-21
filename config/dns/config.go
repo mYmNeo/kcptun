@@ -12,4 +12,6 @@ type DNSConfig struct {
 	IPTablesPath       string   `json:"iptables-path"`
 	QPSLimit           int      `json:"qps-limit"`
 	BurstLimit         int      `json:"burst-limit"`
+	ConnPoolSize       int      `json:"pool-size"`
+	Mode               string   `json:"mode"`
 }
