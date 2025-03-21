@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OneYX/v2ray-core/tools/gfwlist"
@@ -45,6 +47,57 @@ type DNSClient struct {
 	limiter  *rate.Limiter
 	cli      *dns.Client
 	remoteIP string
+	pool     *ConnPool
+}
+
+type ConnPool struct {
+	lock    sync.Mutex
+	conns   map[*dns.Conn]bool
+	maxConn int
+	builder func() *dns.Conn
+}
+
+func (cp *ConnPool) GetConn() (conn *dns.Conn) {
+	cp.lock.Lock()
+	defer cp.lock.Unlock()
+
+	for c, used := range cp.conns {
+		if used {
+			continue
+		}
+
+		cp.conns[c] = true
+		conn = c
+		return
+	}
+
+	if len(cp.conns)+1 > cp.maxConn {
+		return nil
+	}
+
+	conn = cp.builder()
+	if conn == nil {
+		return nil
+	}
+
+	cp.conns[conn] = true
+
+	return conn
+}
+
+func (cp *ConnPool) PutConn(conn *dns.Conn) {
+	cp.lock.Lock()
+	defer cp.lock.Unlock()
+
+	cp.conns[conn] = false
+}
+
+func (cp *ConnPool) Free(conn *dns.Conn) {
+	cp.lock.Lock()
+	defer cp.lock.Unlock()
+
+	conn.Close()
+	delete(cp.conns, conn)
 }
 
 type RouterRules struct {
@@ -87,10 +140,10 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 
 	server := &DNSServer{
 		server: &dns.Server{
-			Addr:      fmt.Sprintf("%s:%d", localIP, cfg.LocalDNSPort),
-			Net:       cfg.LocalProtocol,
-			ReusePort: true,
-			ReuseAddr: true,
+			Addr:          fmt.Sprintf("%s:%d", localIP, cfg.LocalDNSPort),
+			Net:           cfg.LocalProtocol,
+			IdleTimeout:   func() time.Duration { return time.Minute * 10 },
+			MaxTCPQueries: -1,
 		},
 		recordCache: ttlcache.New(ttlcache.WithTTL[dns.Question, []dns.RR](time.Duration(cfg.CacheTTL) * time.Second)),
 		dnsConfig:   cfg,
@@ -120,18 +173,20 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 				Timeout: 10 * time.Second,
 			},
 		}
+		server.client.pool = &ConnPool{
+			builder: func() *dns.Conn {
+				conn, err := server.client.cli.Dial(remoteIP)
+				if err != nil {
+					slog.Error("Failed to create dns connection", "error", err)
+					return nil
+				}
 
-		var (
-			qpsLimit   = 128
-			burstLimit = 32
-		)
-		if cfg.QPSLimit > 0 {
-			qpsLimit = cfg.QPSLimit
+				return conn
+			},
+			conns:   make(map[*dns.Conn]bool),
+			maxConn: cfg.ConnPoolSize,
 		}
-		if cfg.BurstLimit > 0 {
-			burstLimit = cfg.BurstLimit
-		}
-		server.client.limiter = rate.NewLimiter(rate.Limit(qpsLimit), burstLimit)
+		server.client.limiter = rate.NewLimiter(rate.Limit(cfg.QPSLimit), cfg.BurstLimit)
 
 		gfwList, err := gfwlist.NewGFWList(cfg.GFWListURLs, cfg.GFWListFiles)
 		if err != nil {
@@ -344,7 +399,7 @@ func (s *DNSServer) Stop() error {
 }
 
 func (s *DNSServer) ListenerOnly() bool {
-	return s.client.cli == nil
+	return s.client.cli == nil && s.dnsConfig.Mode == "server"
 }
 
 // handleDNSRequest handles incoming DNS requests
@@ -486,12 +541,21 @@ func (s *DNSServer) resolveFromRemote(q dns.Question) []dns.RR {
 	)
 
 	// try max 3 times
-	for i := 0; i < 3; i++ {
-		resp, _, err = s.client.cli.Exchange(req, s.client.remoteIP)
+	for range [3]int{} {
+		conn := s.client.pool.GetConn()
+		if conn == nil {
+			slog.Error("Failed to get connection from pool")
+			err = errors.New("get connection from pool")
+			continue
+		}
+
+		resp, _, err = s.client.cli.ExchangeWithConn(req, conn)
 		if err == nil {
+			s.client.pool.PutConn(conn)
 			break
 		}
 
+		s.client.pool.Free(conn)
 		if err != io.EOF {
 			slog.Error("DNS query", "error", err)
 		}
