@@ -12,6 +12,7 @@ require (
 	github.com/ti-mo/conntrack v0.5.1
 	github.com/ti-mo/netfilter v0.5.2
 	github.com/urfave/cli v1.22.16
+	github.com/vishvananda/netlink v1.3.0
 	github.com/xtaci/kcp-go/v5 v5.6.18
 	github.com/xtaci/qpp v1.1.18
 	github.com/xtaci/smux v1.5.34
@@ -34,6 +35,7 @@ require (
 	github.com/templexxx/cpu v0.1.1 // indirect
 	github.com/templexxx/xorsimd v0.4.3 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
+	github.com/vishvananda/netns v0.0.4 // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.36.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
