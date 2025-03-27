@@ -12,11 +12,13 @@ require (
 	github.com/ti-mo/conntrack v0.5.1
 	github.com/ti-mo/netfilter v0.5.2
 	github.com/urfave/cli v1.22.17
+	github.com/vishvananda/netlink v1.3.0
 	github.com/xtaci/kcp-go/v5 v5.6.23
 	github.com/xtaci/qpp v1.1.18
 	github.com/xtaci/smux v1.5.34
 	github.com/xtaci/tcpraw v1.2.31
 	golang.org/x/crypto v0.40.0
+	golang.org/x/time v0.11.0
 )
 
 require (
@@ -31,6 +33,7 @@ require (
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
+	github.com/vishvananda/netns v0.0.4 // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
