@@ -37,7 +37,7 @@ type DNSServer struct {
 	proxyPort string
 
 	gfwList     *gfwlist.GFWList
-	recordCache *ttlcache.Cache[dns.Question, []dns.RR]
+	recordCache *ttlcache.Cache[dns.Question, *DNSCache]
 
 	routerRules RouterRules
 	dnsConfig   *cfg_dns.DNSConfig
@@ -111,6 +111,11 @@ type RouterRules struct {
 	postRoutingRule []string
 }
 
+type DNSCache struct {
+	record     []dns.RR
+	lastUpdate time.Time
+}
+
 func parseAddress(addr string) (network string, host string, err error) {
 	// Check if the address contains a network specification
 	if strings.Contains(addr, "://") {
@@ -146,8 +151,8 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 			MaxTCPQueries: -1,
 		},
 		recordCache: ttlcache.New(
-			ttlcache.WithTTL[dns.Question, []dns.RR](time.Duration(cfg.CacheTTL)*time.Second),
-			ttlcache.WithDisableTouchOnHit[dns.Question, []dns.RR](),
+			ttlcache.WithTTL[dns.Question, *DNSCache](time.Duration(cfg.CacheTTL)*time.Second),
+			ttlcache.WithDisableTouchOnHit[dns.Question, *DNSCache](),
 		),
 		dnsConfig: cfg,
 		localIP:   localIP,
@@ -344,7 +349,12 @@ func (s *DNSServer) Start() error {
 	}
 
 	if s.recordCache != nil {
-		s.recordCache.OnEviction(func(ctx context.Context, er ttlcache.EvictionReason, i *ttlcache.Item[dns.Question, []dns.RR]) {
+		s.recordCache.OnEviction(func(ctx context.Context, er ttlcache.EvictionReason, i *ttlcache.Item[dns.Question, *DNSCache]) {
+			maxDuration := time.Duration(s.dnsConfig.CacheTTL*2) * time.Second
+			if i.Value().lastUpdate.Add(maxDuration).Before(time.Now()) {
+				return
+			}
+
 			question := i.Key()
 			resolver := s.resolveDNS
 			blocked := s.isBlocked(question.Name)
@@ -357,7 +367,10 @@ func (s *DNSServer) Start() error {
 			if answer == nil {
 				return
 			}
-			s.recordCache.Set(question, answer, ttlcache.DefaultTTL)
+
+			val := i.Value()
+			val.record = answer
+			s.recordCache.Set(question, val, ttlcache.DefaultTTL)
 
 			if blocked {
 				s.AddGFWFilterIP(answer)
@@ -411,7 +424,10 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	for _, q := range r.Question {
 		answer := s.recordCache.Get(q)
 		if answer != nil && !answer.IsExpired() {
-			m.Answer = append(m.Answer, answer.Value()...)
+			val := answer.Value()
+			val.lastUpdate = time.Now()
+
+			m.Answer = append(m.Answer, val.record...)
 			continue
 		}
 
@@ -421,7 +437,11 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			if answer == nil {
 				continue
 			}
-			s.recordCache.Set(q, answer, ttlcache.DefaultTTL)
+			val := &DNSCache{
+				record:     answer,
+				lastUpdate: time.Now(),
+			}
+			s.recordCache.Set(q, val, ttlcache.DefaultTTL)
 			m.Answer = append(m.Answer, answer...)
 		} else {
 			slog.Debug("GFW Blocked", "name", q.Name)
@@ -429,7 +449,11 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			if answer == nil {
 				continue
 			}
-			s.recordCache.Set(q, answer, ttlcache.DefaultTTL)
+			val := &DNSCache{
+				record:     answer,
+				lastUpdate: time.Now(),
+			}
+			s.recordCache.Set(q, val, ttlcache.DefaultTTL)
 			s.AddGFWFilterIP(answer)
 			m.Answer = append(m.Answer, answer...)
 		}
