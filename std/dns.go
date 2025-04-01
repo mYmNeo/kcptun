@@ -145,10 +145,13 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 			IdleTimeout:   func() time.Duration { return time.Minute * 10 },
 			MaxTCPQueries: -1,
 		},
-		recordCache: ttlcache.New(ttlcache.WithTTL[dns.Question, []dns.RR](time.Duration(cfg.CacheTTL) * time.Second)),
-		dnsConfig:   cfg,
-		localIP:     localIP,
-		localCIDR:   localCIDR,
+		recordCache: ttlcache.New(
+			ttlcache.WithTTL[dns.Question, []dns.RR](time.Duration(cfg.CacheTTL)*time.Second),
+			ttlcache.WithDisableTouchOnHit[dns.Question, []dns.RR](),
+		),
+		dnsConfig: cfg,
+		localIP:   localIP,
+		localCIDR: localCIDR,
 	}
 
 	if len(kcpListenAddr) > 0 {
@@ -341,6 +344,26 @@ func (s *DNSServer) Start() error {
 	}
 
 	if s.recordCache != nil {
+		s.recordCache.OnEviction(func(ctx context.Context, er ttlcache.EvictionReason, i *ttlcache.Item[dns.Question, []dns.RR]) {
+			question := i.Key()
+			resolver := s.resolveDNS
+			blocked := s.isBlocked(question.Name)
+
+			if blocked {
+				resolver = s.resolveFromRemote
+			}
+
+			answer := resolver(question)
+			if answer == nil {
+				return
+			}
+			s.recordCache.Set(question, answer, ttlcache.DefaultTTL)
+
+			if blocked {
+				s.AddGFWFilterIP(answer)
+			}
+		})
+
 		go s.recordCache.Start()
 	}
 
