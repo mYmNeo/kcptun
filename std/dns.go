@@ -544,6 +544,7 @@ func (s *DNSServer) resolveFromRemote(q dns.Question) []dns.RR {
 		if conn == nil {
 			slog.Error("Failed to get connection from pool")
 			err = errors.New("get connection from pool")
+			time.Sleep(time.Second)
 			continue
 		}
 
