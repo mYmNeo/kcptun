@@ -72,6 +72,7 @@ func (cp *ConnPool) GetConn() (conn *dns.Conn) {
 	}
 
 	if len(cp.conns)+1 > cp.maxConn {
+		slog.Error("Exceeded max connection limit", "maxConn", cp.maxConn)
 		return nil
 	}
 
@@ -142,7 +143,6 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 		server: &dns.Server{
 			Addr:          fmt.Sprintf("%s:%d", localIP, cfg.LocalDNSPort),
 			Net:           cfg.LocalProtocol,
-			IdleTimeout:   func() time.Duration { return time.Minute * 10 },
 			MaxTCPQueries: -1,
 		},
 		recordCache: ttlcache.New(
