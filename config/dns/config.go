@@ -8,6 +8,7 @@ type DNSConfig struct {
 	RemoteDNSAddr      string   `json:"remote-dns-addr"`
 	GFWListURLs        []string `json:"gfwlist-urls"`
 	GFWListFiles       []string `json:"gfwlist-files"`
+	BlockedListFiles   []string `json:"blockedlist-files"`
 	CacheTTL           int      `json:"cache-ttl"`
 	IPTablesPath       string   `json:"iptables-path"`
 	QPSLimit           int      `json:"qps-limit"`

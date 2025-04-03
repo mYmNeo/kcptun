@@ -38,6 +38,7 @@ type DNSServer struct {
 
 	gfwList     *gfwlist.GFWList
 	recordCache *ttlcache.Cache[dns.Question, *DNSCache]
+	blockedList *gfwlist.GFWList
 
 	routerRules RouterRules
 	dnsConfig   *cfg_dns.DNSConfig
@@ -201,6 +202,12 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 			return nil, fmt.Errorf("failed to create gfwlist: %s", err)
 		}
 		server.gfwList = gfwList
+
+		blockedList, err := gfwlist.NewGFWList(nil, cfg.BlockedListFiles)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create blockedlist: %s", err)
+		}
+		server.blockedList = blockedList
 	}
 
 	dns.HandleFunc(".", server.handleDNSRequest)
@@ -357,7 +364,7 @@ func (s *DNSServer) Start() error {
 
 			question := i.Key()
 			resolver := s.resolveDNS
-			blocked := s.isBlocked(question.Name)
+			blocked := s.isGFWBlocked(question.Name)
 
 			if blocked {
 				resolver = s.resolveFromRemote
@@ -422,9 +429,9 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	// Resolve the DNS query
 	for _, q := range r.Question {
-		answer := s.recordCache.Get(q)
-		if answer != nil && !answer.IsExpired() {
-			val := answer.Value()
+		cachedAnswer := s.recordCache.Get(q)
+		if cachedAnswer != nil && !cachedAnswer.IsExpired() {
+			val := cachedAnswer.Value()
 			val.lastUpdate = time.Now()
 
 			m.Answer = append(m.Answer, val.record...)
@@ -432,31 +439,32 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		}
 
 		slog.Info("DNS Query", "name", q.Name, "type", dns.TypeToString[q.Qtype])
-		if s.ListenerOnly() || !s.isBlocked(q.Name) {
-			answer := s.resolveDNS(q)
-			if answer == nil {
-				continue
-			}
-			val := &DNSCache{
-				record:     answer,
-				lastUpdate: time.Now(),
-			}
-			s.recordCache.Set(q, val, ttlcache.DefaultTTL)
-			m.Answer = append(m.Answer, answer...)
-		} else {
-			slog.Debug("GFW Blocked", "name", q.Name)
-			answer := s.resolveFromRemote(q)
-			if answer == nil {
-				continue
-			}
-			val := &DNSCache{
-				record:     answer,
-				lastUpdate: time.Now(),
-			}
-			s.recordCache.Set(q, val, ttlcache.DefaultTTL)
-			s.AddGFWFilterIP(answer)
-			m.Answer = append(m.Answer, answer...)
+		if s.isBlocked(q.Name) {
+			slog.Debug("Blocked by user", "name", q.Name)
+			continue
 		}
+
+		resolver := s.resolveDNS
+		blocked := false
+		if !(s.ListenerOnly() || !s.isGFWBlocked(q.Name)) {
+			slog.Debug("GFW Blocked", "name", q.Name)
+			blocked = true
+			resolver = s.resolveFromRemote
+		}
+
+		answer := resolver(q)
+		if answer == nil {
+			continue
+		}
+		val := &DNSCache{
+			record:     answer,
+			lastUpdate: time.Now(),
+		}
+		s.recordCache.Set(q, val, ttlcache.DefaultTTL)
+		if blocked {
+			s.AddGFWFilterIP(answer)
+		}
+		m.Answer = append(m.Answer, answer...)
 	}
 
 	if err := w.WriteMsg(m); err != nil {
@@ -464,8 +472,12 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 }
 
+func (s *DNSServer) isGFWBlocked(domain string) bool {
+	return s.gfwList != nil && s.gfwList.IsBlockedByGFW(strings.TrimSuffix(domain, "."))
+}
+
 func (s *DNSServer) isBlocked(domain string) bool {
-	return s.gfwList.IsBlockedByGFW(strings.TrimSuffix(domain, "."))
+	return s.blockedList != nil && s.blockedList.IsBlockedByGFW(strings.TrimSuffix(domain, "."))
 }
 
 func (s *DNSServer) resolveDNS(q dns.Question) []dns.RR {
