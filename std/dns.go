@@ -30,11 +30,12 @@ const (
 
 // DNSServer represents a DNS server
 type DNSServer struct {
-	server    *dns.Server
-	client    DNSClient
-	localIP   string
-	localCIDR string
-	proxyPort string
+	server     *dns.Server
+	client     DNSClient
+	forwardCli DNSClient
+	localIP    string
+	localCIDR  string
+	proxyPort  string
 
 	gfwList     *gfwlist.GFWList
 	recordCache *ttlcache.Cache[dns.Question, *DNSCache]
@@ -208,6 +209,22 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 			return nil, fmt.Errorf("failed to create blockedlist: %s", err)
 		}
 		server.blockedList = blockedList
+	}
+
+	if cfg.ForwardDNSAddr != "" {
+		forwardNetwork, forwardIP, err := parseAddress(cfg.ForwardDNSAddr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid forward address: %s", err)
+		}
+
+		server.forwardCli.cli = &dns.Client{
+			Net:     forwardNetwork,
+			UDPSize: dns.MaxMsgSize,
+			Dialer: &net.Dialer{
+				Timeout: 10 * time.Second,
+			},
+		}
+		server.forwardCli.remoteIP = forwardIP
 	}
 
 	dns.HandleFunc(".", server.handleDNSRequest)
@@ -481,84 +498,23 @@ func (s *DNSServer) isBlocked(domain string) bool {
 }
 
 func (s *DNSServer) resolveDNS(q dns.Question) []dns.RR {
-	answers := make([]dns.RR, 0)
-	switch q.Qtype {
-	case dns.TypeA:
-		// Try to resolve the A record
-		ips, err := net.LookupIP(strings.TrimSuffix(q.Name, "."))
-		if err == nil {
-			for _, ip := range ips {
-				if ipv4 := ip.To4(); ipv4 != nil {
-					rr := &dns.A{
-						Hdr: dns.RR_Header{
-							Name:   q.Name,
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
-							Ttl:    uint32(s.dnsConfig.CacheTTL),
-						},
-						A: ipv4,
-					}
-					answers = append(answers, rr)
-				}
-			}
-		}
-	case dns.TypeAAAA:
-		// Try to resolve the AAAA record
-		ips, err := net.LookupIP(strings.TrimSuffix(q.Name, "."))
-		if err == nil {
-			for _, ip := range ips {
-				if ipv6 := ip.To16(); ipv6 != nil && ip.To4() == nil {
-					rr := &dns.AAAA{
-						Hdr: dns.RR_Header{
-							Name:   q.Name,
-							Rrtype: dns.TypeAAAA,
-							Class:  dns.ClassINET,
-							Ttl:    uint32(s.dnsConfig.CacheTTL),
-						},
-						AAAA: ipv6,
-					}
-					answers = append(answers, rr)
-				}
-			}
-		}
-	case dns.TypeMX:
-		// Try to resolve MX records
-		mxs, err := net.LookupMX(strings.TrimSuffix(q.Name, "."))
-		if err == nil {
-			for _, mx := range mxs {
-				rr := &dns.MX{
-					Hdr: dns.RR_Header{
-						Name:   q.Name,
-						Rrtype: dns.TypeMX,
-						Class:  dns.ClassINET,
-						Ttl:    uint32(s.dnsConfig.CacheTTL),
-					},
-					Preference: uint16(mx.Pref),
-					Mx:         mx.Host,
-				}
-				answers = append(answers, rr)
-			}
-		}
-	case dns.TypeTXT:
-		// Try to resolve TXT records
-		txts, err := net.LookupTXT(strings.TrimSuffix(q.Name, "."))
-		if err == nil {
-			for _, txt := range txts {
-				rr := &dns.TXT{
-					Hdr: dns.RR_Header{
-						Name:   q.Name,
-						Rrtype: dns.TypeTXT,
-						Class:  dns.ClassINET,
-						Ttl:    uint32(s.dnsConfig.CacheTTL),
-					},
-					Txt: []string{txt},
-				}
-				answers = append(answers, rr)
-			}
-		}
+	req := new(dns.Msg)
+	req.SetQuestion(q.Name, q.Qtype)
+	req.RecursionDesired = true
+	req.SetEdns0(dns.MaxMsgSize, true)
+
+	resp, _, err := s.forwardCli.cli.Exchange(req, s.forwardCli.remoteIP)
+	if err != nil {
+		slog.Error("Forward DNS", "remoteIP", s.forwardCli.remoteIP, "name", q.Name, "error", err)
+		return nil
 	}
 
-	return answers
+	if resp.Rcode != dns.RcodeSuccess {
+		slog.Error("Forward DNS", "remoteIP", s.forwardCli.remoteIP, "name", q.Name, "error", dns.RcodeToString[resp.Rcode])
+		return nil
+	}
+
+	return resp.Answer
 }
 
 func (s *DNSServer) resolveFromRemote(q dns.Question) []dns.RR {
@@ -592,7 +548,7 @@ func (s *DNSServer) resolveFromRemote(q dns.Question) []dns.RR {
 
 		s.client.pool.Free(conn)
 		if err != io.EOF {
-			slog.Error("DNS query", "error", err)
+			slog.Error("DNS query", "name", q.Name, "error", err)
 		}
 	}
 
@@ -601,7 +557,7 @@ func (s *DNSServer) resolveFromRemote(q dns.Question) []dns.RR {
 	}
 
 	if resp.Rcode != dns.RcodeSuccess {
-		slog.Error("Resolve from remote", "error", dns.RcodeToString[resp.Rcode])
+		slog.Error("Resolve from remote", "name", q.Name, "error", dns.RcodeToString[resp.Rcode])
 		return nil
 	}
 
