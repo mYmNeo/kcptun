@@ -383,6 +383,7 @@ func main() {
 				slog.Error("Create dns server", "error", err)
 				os.Exit(-1)
 			}
+			std.RegisterUserHandler(dnsLookup.UpdateGFWList)
 
 			go func() {
 				defer dnsLookup.Stop()
@@ -617,7 +618,6 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad,
 		s1.Close()
 		s2.Close()
 	}()
-
 
 	// if conntrack is enabled, we need to send socks5 handshake before sending data
 	if conntrackLookup != nil {

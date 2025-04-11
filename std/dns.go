@@ -37,6 +37,7 @@ type DNSServer struct {
 	localCIDR  string
 	proxyPort  string
 
+	gfwLock     sync.RWMutex
 	gfwList     *gfwlist.GFWList
 	recordCache *ttlcache.Cache[dns.Question, *DNSCache]
 	blockedList *gfwlist.GFWList
@@ -489,11 +490,36 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 }
 
+func (s *DNSServer) UpdateGFWList() {
+	s.gfwLock.Lock()
+	defer s.gfwLock.Unlock()
+
+	gfwList, err := gfwlist.NewGFWList(s.dnsConfig.GFWListURLs, s.dnsConfig.GFWListFiles)
+	if err != nil {
+		slog.Error("Failed to update gfwlist", "error", err)
+	}
+	s.gfwList = gfwList
+	slog.Info("Updated gfwlist")
+
+	blockedList, err := gfwlist.NewGFWList(nil, s.dnsConfig.BlockedListFiles)
+	if err != nil {
+		slog.Error("Failed to update blockedlist", "error", err)
+	}
+	s.blockedList = blockedList
+	slog.Info("Updated blockedlist")
+}
+
 func (s *DNSServer) isGFWBlocked(domain string) bool {
+	s.gfwLock.RLock()
+	defer s.gfwLock.RUnlock()
+
 	return s.gfwList != nil && s.gfwList.IsBlockedByGFW(strings.TrimSuffix(domain, "."))
 }
 
 func (s *DNSServer) isBlocked(domain string) bool {
+	s.gfwLock.RLock()
+	defer s.gfwLock.RUnlock()
+
 	return s.blockedList != nil && s.blockedList.IsBlockedByGFW(strings.TrimSuffix(domain, "."))
 }
 

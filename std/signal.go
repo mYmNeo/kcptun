@@ -25,15 +25,12 @@
 package std
 
 import (
-	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
-
-	kcp "github.com/xtaci/kcp-go/v5"
 )
 
 const (
@@ -47,10 +44,15 @@ func init() {
 
 var (
 	exitHandlers []func()
+	userHandlers []func()
 )
 
 func RegisterExitHandler(handler func()) {
 	exitHandlers = append(exitHandlers, handler)
+}
+
+func RegisterUserHandler(handler func()) {
+	userHandlers = append(userHandlers, handler)
 }
 
 func sigHandler() {
@@ -63,7 +65,10 @@ func sigHandler() {
 		sig := <-ch
 		switch sig {
 		case syscall.SIGUSR1:
-			log.Printf("KCP SNMP:%+v", kcp.DefaultSnmp.Copy())
+			for _, handler := range userHandlers {
+				slog.Info("Running user handler", "handler", handler)
+				handler()
+			}
 		case syscall.SIGTERM, syscall.SIGINT:
 			for _, handler := range exitHandlers {
 				slog.Info("Running exit handler", "handler", handler)
