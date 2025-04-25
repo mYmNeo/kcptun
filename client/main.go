@@ -298,6 +298,12 @@ func main() {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			AddSource: level == slog.LevelDebug,
 			Level:     level,
+			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+				if a.Key == "time" && a.Value.Kind() == slog.KindTime {
+					return slog.Attr{}
+				}
+				return a
+			},
 		})))
 
 		switch config.Mode {
