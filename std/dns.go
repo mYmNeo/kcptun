@@ -305,6 +305,7 @@ func (s *DNSServer) PrepareGFWListIPSet() error {
 	}
 
 	gfwlistRule := []string{
+		"-s", s.localCIDR,
 		"-p", "tcp",
 		"-m", "set",
 		"--match-set", GFW_IPLIST,
