@@ -153,13 +153,16 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 			Net:           cfg.LocalProtocol,
 			MaxTCPQueries: -1,
 		},
-		recordCache: ttlcache.New(
-			ttlcache.WithTTL[dns.Question, *DNSCache](time.Duration(cfg.CacheTTL)*time.Second),
-			ttlcache.WithDisableTouchOnHit[dns.Question, *DNSCache](),
-		),
 		dnsConfig: cfg,
 		localIP:   localIP,
 		localCIDR: localCIDR,
+	}
+
+	if cfg.UseCache {
+		server.recordCache = ttlcache.New(
+			ttlcache.WithTTL[dns.Question, *DNSCache](time.Duration(cfg.CacheTTL)*time.Second),
+			ttlcache.WithDisableTouchOnHit[dns.Question, *DNSCache](),
+		)
 	}
 
 	if len(kcpListenAddr) > 0 {
@@ -448,13 +451,15 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	// Resolve the DNS query
 	for _, q := range r.Question {
-		cachedAnswer := s.recordCache.Get(q)
-		if cachedAnswer != nil && !cachedAnswer.IsExpired() {
-			val := cachedAnswer.Value()
-			val.lastUpdate = time.Now()
+		if s.recordCache != nil {
+			cachedAnswer := s.recordCache.Get(q)
+			if cachedAnswer != nil && !cachedAnswer.IsExpired() {
+				val := cachedAnswer.Value()
+				val.lastUpdate = time.Now()
 
-			m.Answer = append(m.Answer, val.record...)
-			continue
+				m.Answer = append(m.Answer, val.record...)
+				continue
+			}
 		}
 
 		slog.Info("DNS Query", "name", q.Name, "type", dns.TypeToString[q.Qtype])
@@ -475,11 +480,14 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		if answer == nil {
 			continue
 		}
-		val := &DNSCache{
-			record:     answer,
-			lastUpdate: time.Now(),
+
+		if s.recordCache != nil {
+			val := &DNSCache{
+				record:     answer,
+				lastUpdate: time.Now(),
+			}
+			s.recordCache.Set(q, val, ttlcache.DefaultTTL)
 		}
-		s.recordCache.Set(q, val, ttlcache.DefaultTTL)
 		if blocked {
 			s.AddGFWFilterIP(answer)
 		}

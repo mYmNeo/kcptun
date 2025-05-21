@@ -2,6 +2,7 @@ package dns
 
 type DNSConfig struct {
 	UseDNS             bool     `json:"use-dns"`
+	UseCache           bool     `json:"use-cache"`
 	LocalInterfaceName string   `json:"local-ifname"`
 	LocalProtocol      string   `json:"local-protocol"`
 	LocalDNSPort       int      `json:"local-port"`
