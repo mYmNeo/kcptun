@@ -451,17 +451,6 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	// Resolve the DNS query
 	for _, q := range r.Question {
-		if s.recordCache != nil {
-			cachedAnswer := s.recordCache.Get(q)
-			if cachedAnswer != nil && !cachedAnswer.IsExpired() {
-				val := cachedAnswer.Value()
-				val.lastUpdate = time.Now()
-
-				m.Answer = append(m.Answer, val.record...)
-				continue
-			}
-		}
-
 		slog.Info("DNS Query", "name", q.Name, "type", dns.TypeToString[q.Qtype])
 		if s.isBlocked(q.Name) {
 			slog.Debug("Blocked by user", "name", q.Name)
@@ -481,14 +470,15 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			continue
 		}
 
-		if s.recordCache != nil {
-			val := &DNSCache{
-				record:     answer,
-				lastUpdate: time.Now(),
-			}
-			s.recordCache.Set(q, val, ttlcache.DefaultTTL)
-		}
 		if blocked {
+			if s.recordCache != nil {
+				val := &DNSCache{
+					record:     answer,
+					lastUpdate: time.Now(),
+				}
+				s.recordCache.Set(q, val, ttlcache.DefaultTTL)
+			}
+
 			s.AddGFWFilterIP(answer)
 		}
 		m.Answer = append(m.Answer, answer...)
