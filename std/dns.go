@@ -152,6 +152,7 @@ func NewDNSServer(cfg *cfg_dns.DNSConfig, kcpListenAddr string) (*DNSServer, err
 			Addr:          fmt.Sprintf("%s:%d", localIP, cfg.LocalDNSPort),
 			Net:           cfg.LocalProtocol,
 			MaxTCPQueries: -1,
+			IdleTimeout:   func() time.Duration { return time.Minute },
 		},
 		dnsConfig: cfg,
 		localIP:   localIP,
