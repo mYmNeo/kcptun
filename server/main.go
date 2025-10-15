@@ -328,11 +328,7 @@ func main() {
 		slog.Info("config", "pprof", config.Pprof)
 		slog.Info("config", "tcp", config.TCP)
 		if config.DNSConfig != nil {
-			slog.Info("config", "use-dns", config.DNSConfig.UseDNS)
 			slog.Info("config", "local-ifname", config.DNSConfig.LocalInterfaceName)
-			slog.Info("config", "local-protocol", config.DNSConfig.LocalProtocol)
-			slog.Info("config", "local-port", config.DNSConfig.LocalDNSPort)
-			slog.Info("config", "cache-ttl", config.DNSConfig.CacheTTL)
 		}
 
 		if config.QPP {
@@ -349,21 +345,6 @@ func main() {
 			if new(big.Int).GCD(nil, nil, big.NewInt(int64(config.QPPCount)), big.NewInt(8)).Int64() != 1 {
 				color.Red("QPP Warning: QPPCount %d, choose a prime number for security", config.QPPCount)
 			}
-		}
-
-		if config.DNSConfig != nil && config.DNSConfig.UseDNS {
-			dnsLookup, err := std.NewDNSServer(config.DNSConfig, "")
-			if err != nil {
-				checkError(err, "Create dns server", "error", err)
-			}
-			go func() {
-				defer dnsLookup.Stop()
-
-				if err := dnsLookup.Start(); err != nil {
-					dnsLookup.Stop()
-					checkError(err, "Start dns server", "error", err)
-				}
-			}()
 		}
 
 		// parameters check

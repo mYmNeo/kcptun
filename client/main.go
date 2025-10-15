@@ -23,8 +23,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -361,66 +364,30 @@ func main() {
 		slog.Info("config", "pprof", config.Pprof)
 		slog.Info("config", "conntrack", config.UseConntrack)
 		if config.DNSConfig != nil {
-			slog.Info("config", "use-dns", config.DNSConfig.UseDNS)
 			slog.Info("config", "local-ifname", config.DNSConfig.LocalInterfaceName)
-			slog.Info("config", "local-protocol", config.DNSConfig.LocalProtocol)
-			slog.Info("config", "local-port", config.DNSConfig.LocalDNSPort)
-			slog.Info("config", "remote-dns-addr", config.DNSConfig.RemoteDNSAddr)
-			slog.Info("config", "gfwlist-urls", config.DNSConfig.GFWListURLs)
-			slog.Info("config", "gfwlist-files", config.DNSConfig.GFWListFiles)
-			slog.Info("config", "cache-ttl", config.DNSConfig.CacheTTL)
-			slog.Info("config", "iptables-path", config.DNSConfig.IPTablesPath)
 		}
 
 		var conntrackLookup ConntrackLookup
-		if config.DNSConfig != nil && config.DNSConfig.UseDNS {
-			if config.DNSConfig.ConnPoolSize == 0 {
-				config.DNSConfig.ConnPoolSize = 8
-			}
-			if config.DNSConfig.QPSLimit == 0 {
-				config.DNSConfig.QPSLimit = config.DNSConfig.ConnPoolSize
-			}
-			if config.DNSConfig.BurstLimit == 0 {
-				config.DNSConfig.BurstLimit = 1
-			}
-
-			dnsLookup, err := std.NewDNSServer(config.DNSConfig, config.LocalAddr)
+		if config.UseConntrack {
+			localCIDR, err := GetRouteTable(config.DNSConfig.LocalInterfaceName)
 			if err != nil {
-				slog.Error("Create dns server", "error", err)
-				os.Exit(-1)
+				checkError(err, "GetRouteTable", "error", err)
 			}
-			std.RegisterUserHandler(dnsLookup.UpdateGFWList)
 
-			go func() {
-				defer dnsLookup.Stop()
+			_, ipNet, _ := net.ParseCIDR(localCIDR)
 
-				if err := dnsLookup.Start(); err != nil {
-					dnsLookup.Stop()
-					checkError(err, "Start dns server", "error", err)
-				}
-			}()
-
-			if config.UseConntrack {
-				localCIDR, err := std.GetRouteTable(config.DNSConfig.LocalInterfaceName)
-				if err != nil {
-					checkError(err, "GetRouteTable", "error", err)
-				}
-
-				_, ipNet, _ := net.ParseCIDR(localCIDR)
-
-				cf, err := NewConntrackFlow([]ConnTupleKeyFilter{
-					func(key ConnTupleKey) bool {
-						return key.Proto != syscall.IPPROTO_TCP || key.Port == 53
-					},
-					func(key ConnTupleKey) bool {
-						return !ipNet.Contains(net.ParseIP(key.Addr))
-					},
-				})
-				if err != nil {
-					checkError(err, "Create conntrack flow", "error", err)
-				}
-				conntrackLookup = cf
+			cf, err := NewConntrackFlow([]ConnTupleKeyFilter{
+				func(key ConnTupleKey) bool {
+					return key.Proto != syscall.IPPROTO_TCP || key.Port == 53
+				},
+				func(key ConnTupleKey) bool {
+					return !ipNet.Contains(net.ParseIP(key.Addr))
+				},
+			})
+			if err != nil {
+				checkError(err, "Create conntrack flow", "error", err)
 			}
+			conntrackLookup = cf
 		}
 
 		// QPP parameters check
@@ -720,4 +687,43 @@ func scavenger(ch chan timedSession, config *client.Config) {
 			sessionList = newList
 		}
 	}
+}
+
+func GetRouteTable(ifName string) (string, error) {
+	// Get system routing rules
+	routeFile, err := os.Open("/proc/net/route")
+	if err != nil {
+		return "", fmt.Errorf("failed to open route file: %v", err)
+	}
+	defer routeFile.Close()
+
+	scanner := bufio.NewScanner(routeFile)
+	// Skip header line
+	scanner.Scan()
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) >= 3 {
+			iface := fields[0]
+			destHex := fields[1]
+			maskHex := fields[7]
+
+			if iface != ifName {
+				continue
+			}
+
+			// Convert hex to IP address
+			dest, _ := hex.DecodeString(destHex)
+			mask, _ := hex.DecodeString(maskHex)
+			cidr := net.IPNet{
+				IP:   net.IPv4(dest[3], dest[2], dest[1], dest[0]),
+				Mask: net.IPv4Mask(mask[3], mask[2], mask[1], mask[0]),
+			}
+
+			return cidr.String(), nil
+		}
+	}
+
+	return "", nil
 }
