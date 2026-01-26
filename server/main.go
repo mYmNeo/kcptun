@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -44,9 +45,12 @@ import (
 	"github.com/xtaci/tcpraw"
 )
 
-const (
+var (
 	// SALT is used as the PBKDF2 salt while deriving the shared session key.
 	SALT = "kcp-go"
+)
+
+const (
 	// maxSmuxVer guards against negotiating unsupported smux protocol versions.
 	maxSmuxVer = 2
 )
@@ -54,6 +58,7 @@ const (
 const (
 	TGT_UNIX = iota
 	TGT_TCP
+	TGT_SOCKS5
 )
 
 // VERSION is populated via build flags when packaging official binaries.
@@ -327,6 +332,9 @@ func main() {
 		log.Println("pprof:", config.Pprof)
 		log.Println("quiet:", config.Quiet)
 		log.Println("tcp:", config.TCP)
+		if config.DNSConfig != nil {
+			slog.Info("config", "local-ifname", config.DNSConfig.LocalInterfaceName)
+		}
 
 		if config.QPP {
 			suggestions, err := std.ValidateQPPParams(config.QPPCount, config.Key)
@@ -354,7 +362,7 @@ func main() {
 
 		// Start the pprof server if the feature is enabled.
 		if config.Pprof {
-			go http.ListenAndServe(":6060", nil)
+			go http.ListenAndServe("127.0.0.1:6060", nil)
 		}
 
 		// Instantiate a shared QPP pad if the feature is enabled.
@@ -445,7 +453,7 @@ func serveListener(lis *kcp.Listener, _Q_ *qpp.QuantumPermutationPad, config *Co
 // each stream to the configured TCP or UNIX target.
 func handleMux(_Q_ *qpp.QuantumPermutationPad, conn net.Conn, config *Config) {
 	// Determine whether the upstream target is TCP or a UNIX socket path.
-	targetType := TGT_TCP
+	targetType := config.ProxyMode
 	if _, _, err := net.SplitHostPort(config.Target); err != nil {
 		targetType = TGT_UNIX
 	}
@@ -492,7 +500,6 @@ func handleMux(_Q_ *qpp.QuantumPermutationPad, conn net.Conn, config *Config) {
 					p1.Close()
 					return
 				}
-				handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
 			case TGT_UNIX:
 				p2, err = net.Dial("unix", config.Target)
 				if err != nil {
@@ -500,9 +507,16 @@ func handleMux(_Q_ *qpp.QuantumPermutationPad, conn net.Conn, config *Config) {
 					p1.Close()
 					return
 				}
-				handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
+			case TGT_SOCKS5:
+				p2, err = std.SocksHandshake(p1)
+				if err != nil {
+					log.Println(err)
+					p1.Close()
+					return
+				}
 			}
 
+			handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
 		}(stream)
 	}
 }
