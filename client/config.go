@@ -23,17 +23,21 @@
 package main
 
 import (
+	"github.com/xtaci/kcptun/dns"
 	"github.com/xtaci/kcptun/std"
 )
 
 // Config models the client-side configuration loaded via flags or JSON.
 type Config struct {
-	std.BaseConfig        // Embed shared configuration
-	LocalAddr      string `json:"localaddr"`
-	RemoteAddr     string `json:"remoteaddr"`
-	Conn           int    `json:"conn"`
-	AutoExpire     int    `json:"autoexpire"`
-	ScavengeTTL    int    `json:"scavengettl"`
+	std.BaseConfig                // Embed shared configuration
+	LocalAddr      string         `json:"localaddr"`
+	RemoteAddr     string         `json:"remoteaddr"`
+	Conn           int            `json:"conn"`
+	AutoExpire     int            `json:"autoexpire"`
+	ScavengeTTL    int            `json:"scavengettl"`
+	UseConntrack   bool           `json:"conntrack"`
+	ProxyMode      int            `json:"proxy-mode"`
+	DNSConfig      *dns.DNSConfig `json:"dns"`
 }
 
 func parseJSONConfig(config *Config, path string) error {

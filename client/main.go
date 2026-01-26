@@ -23,7 +23,9 @@
 package main
 
 import (
+	"bufio"
 	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -31,6 +33,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -44,9 +48,11 @@ import (
 	"github.com/xtaci/smux"
 )
 
-const (
-	// SALT is used as the PBKDF2 salt while deriving the shared session key.
+var (
 	SALT = "kcp-go"
+)
+
+const (
 	// maxSmuxVer guards against negotiating unsupported smux protocol versions.
 	maxSmuxVer = 2
 	// scavengePeriod defines how frequently expired sessions are purged.
@@ -358,6 +364,32 @@ func main() {
 		log.Println("quiet:", config.Quiet)
 		log.Println("tcp:", config.TCP)
 		log.Println("pprof:", config.Pprof)
+		if config.DNSConfig != nil {
+			log.Println("dns config:", config.DNSConfig.LocalInterfaceName)
+		}
+
+		var conntrackLookup ConntrackLookup
+		if config.UseConntrack {
+			localCIDR, err := GetRouteTable(config.DNSConfig.LocalInterfaceName)
+			if err != nil {
+				checkError(err)
+			}
+
+			_, ipNet, _ := net.ParseCIDR(localCIDR)
+
+			cf, err := NewConntrackFlow([]ConnTupleKeyFilter{
+				func(key ConnTupleKey) bool {
+					return key.Proto != syscall.IPPROTO_TCP || key.Port == 53
+				},
+				func(key ConnTupleKey) bool {
+					return !ipNet.Contains(net.ParseIP(key.Addr))
+				},
+			})
+			if err != nil {
+				checkError(err)
+			}
+			conntrackLookup = cf
+		}
 
 		// Validate QPP parameters so we can warn about unsafe combinations early.
 		if config.QPP {
@@ -394,7 +426,7 @@ func main() {
 		// Optionally expose Go's net/http/pprof handlers on :6060.
 		if config.Pprof {
 			go func() {
-				if err := http.ListenAndServe(":6060", nil); err != nil {
+				if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
 					log.Println("pprof server:", err)
 				}
 			}()
@@ -439,7 +471,7 @@ func main() {
 			}
 
 			// Serve the accepted client in its own goroutine to keep the accept loop responsive.
-			go handleClient(_Q_, []byte(config.Key), muxes[idx].session, p1, config.Quiet, config.CloseWait)
+			go handleClient(_Q_, []byte(config.Key), muxes[idx].session, p1, config.Quiet, config.CloseWait, conntrackLookup)
 			rr++
 		}
 	}
@@ -509,7 +541,7 @@ func waitConn(config *Config, block kcp.BlockCrypt) *smux.Session {
 
 // handleClient tunnels a single accepted TCP/UNIX client through an smux
 // stream and optionally wraps the stream in QPP for additional obfuscation.
-func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Session, p1 net.Conn, quiet bool, closeWait int) {
+func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Session, p1 net.Conn, quiet bool, closeWait int, conntrackLookup ConntrackLookup) {
 	logln := func(v ...any) {
 		if !quiet {
 			log.Println(v...)
@@ -534,6 +566,42 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 	if _Q_ != nil {
 		// Replace the smux side with a QPP-wrapped port.
 		s2 = std.NewQPPPort(p2, _Q_, seed)
+	}
+
+	// if conntrack is enabled, we need to send socks5 handshake before sending data
+	if conntrackLookup != nil {
+		from := p1.RemoteAddr().(*net.TCPAddr)
+
+		logln("conntrack conns state", "src-ip", from.IP.String(), "src-port", from.Port)
+		var to *net.TCPAddr
+
+		func() {
+			for range [3]int{} {
+				to, err = conntrackLookup.GetConnsState(from)
+				if err == nil {
+					break
+				}
+				time.Sleep(time.Millisecond * 100)
+			}
+
+			if to == nil {
+				logln("Fallback to direct connection", "error", err)
+				return
+			}
+			logln("send socks5 connect request", "dst-ip", to.IP.String(), "dst-port", to.Port)
+			// send socks5 handshake
+			err = std.SendSocksConnectRequest(p2, to)
+			if err != nil {
+				logln("socks5 send handshake", "error", err)
+				return
+			}
+
+			err = std.ReadSocksConnectResponse(p2)
+			if err != nil {
+				logln("socks5 read handshake", "error", err)
+				return
+			}
+		}()
 	}
 
 	// Begin piping data bidirectionally between the socket and the smux stream.
@@ -592,4 +660,43 @@ func scavenger(ch chan timedSession, config *Config) {
 			sessionList = newList
 		}
 	}
+}
+
+func GetRouteTable(ifName string) (string, error) {
+	// Get system routing rules
+	routeFile, err := os.Open("/proc/net/route")
+	if err != nil {
+		return "", fmt.Errorf("failed to open route file: %v", err)
+	}
+	defer routeFile.Close()
+
+	scanner := bufio.NewScanner(routeFile)
+	// Skip header line
+	scanner.Scan()
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) >= 3 {
+			iface := fields[0]
+			destHex := fields[1]
+			maskHex := fields[7]
+
+			if iface != ifName {
+				continue
+			}
+
+			// Convert hex to IP address
+			dest, _ := hex.DecodeString(destHex)
+			mask, _ := hex.DecodeString(maskHex)
+			cidr := net.IPNet{
+				IP:   net.IPv4(dest[3], dest[2], dest[1], dest[0]),
+				Mask: net.IPv4Mask(mask[3], mask[2], mask[1], mask[0]),
+			}
+
+			return cidr.String(), nil
+		}
+	}
+
+	return "", nil
 }

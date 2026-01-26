@@ -40,7 +40,21 @@ const (
 )
 
 func init() {
+	RegisterExitHandler(postProcess)
 	go sigHandler()
+}
+
+var (
+	exitHandlers []func()
+	userHandlers []func()
+)
+
+func RegisterExitHandler(handler func()) {
+	exitHandlers = append(exitHandlers, handler)
+}
+
+func RegisterUserHandler(handler func()) {
+	userHandlers = append(userHandlers, handler)
 }
 
 func sigHandler() {
@@ -54,8 +68,16 @@ func sigHandler() {
 		switch sig {
 		case syscall.SIGUSR1:
 			log.Printf("KCP SNMP:%+v", kcp.DefaultSnmp.Copy())
+			log.Printf("KCP SNMP:%+v", kcp.DefaultSnmp.Copy())
+			for _, handler := range userHandlers {
+				log.Println("Running user handler", "handler", handler)
+				handler()
+			}
 		case syscall.SIGTERM, syscall.SIGINT:
-			postProcess()
+			for _, handler := range exitHandlers {
+				log.Println("Running exit handler", "handler", handler)
+				handler()
+			}
 			signal.Stop(ch)
 			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 

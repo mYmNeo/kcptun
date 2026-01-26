@@ -8,23 +8,23 @@ set -e
 # Target platforms for cross-compilation. Format: OS/ARCH/GOARM/GOMIPS
 # GOARM (5, 6, 7) and GOMIPS (softfloat) are included for specific architectures.
 TARGETS=(
-    "darwin/amd64//" 
+    "darwin/amd64//"
     "darwin/arm64//"
-    
+
     "freebsd/amd64//"
-    
-    "linux/386//" 
-    "linux/amd64//" 
+
+    "linux/386//"
+    "linux/amd64//"
     "linux/arm/5/"          # ARMv5
     "linux/arm/6/"          # ARMv6
     "linux/arm/7/"          # ARMv7
-    "linux/arm64//" 
+    "linux/arm64//"
     "linux/loong64//"
-    "linux/mips//softfloat" 
-    "linux/mipsle//softfloat" 
-    
-    "windows/386//" 
-    "windows/amd64//" 
+    "linux/mips//softfloat"
+    "linux/mipsle//softfloat"
+
+    "windows/386//"
+    "windows/amd64//"
     "windows/arm64//"
 )
 
@@ -37,7 +37,7 @@ BUILD_DIR="$(pwd)/build"
 
 # Version based on UTC date and linker flags
 VERSION=$(date -u +%Y%m%d)
-LDFLAGS="-X main.VERSION=${VERSION} -s -w"
+LDFLAGS="-X main.VERSION=$VERSION -s -w -X main.SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
 
 # --- Tool Check ---
 # Determine the SHA checksum utility (sha1sum or shasum)
@@ -68,7 +68,7 @@ export GO111MODULE=on
 get_suffix() {
     local arch=$1
     local goarm=$2
-    
+
     local suffix="${arch}"
     if [ ! -z "${goarm}" ]; then
         suffix="${arch}${goarm}" # Concatenate arch and GOARM (e.g., arm5)
@@ -82,7 +82,7 @@ build_target() {
     local arch=$2
     local goarm=$3
     local gomips=$4
-    
+
     # Add .exe extension for Windows targets
     local ext=""
     if [ "${os}" == "windows" ]; then
@@ -127,12 +127,12 @@ package_target() {
     if [ "${os}" == "windows" ]; then
         ext=".exe"
     fi
-    local suffix=$(get_suffix "${arch}" "${goarm}") 
+    local suffix=$(get_suffix "${arch}" "${goarm}")
 
     # Full filenames in the BUILD_DIR
     local client_bin="client_${os}_${suffix}${ext}"
     local server_bin="server_${os}_${suffix}${ext}"
-    
+
     # Archive name format: kcptun-os-suffix-VERSION.tar.gz
     local package_name="kcptun-${os}-${suffix}-${VERSION}"
     local archive_file="${package_name}.tar.gz"
@@ -173,7 +173,7 @@ find "${BUILD_DIR}" -type f -regex "${BUILD_DIR}/\(client\|server\)_.*" -delete
 echo "--- Generating SHA1 Checksums ---"
 (cd "${BUILD_DIR}" && $SUM_TOOL *.tar.gz > SHA1SUMS)
 
-# 5. Output checksums to console 
+# 5. Output checksums to console
 echo "--- SHA1SUMS Output ---"
 cat "${BUILD_DIR}/SHA1SUMS"
 echo "---"

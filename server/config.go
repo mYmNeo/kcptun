@@ -31,6 +31,7 @@ type Config struct {
 	std.BaseConfig        // Embed shared configuration
 	Listen         string `json:"listen"`
 	Target         string `json:"target"`
+	ProxyMode      int    `json:"proxy-mode"`
 }
 
 func parseJSONConfig(config *Config, path string) error {
