@@ -59,36 +59,51 @@ func Copy(dst io.Writer, src io.Reader) (written int64, err error) {
 	return io.CopyBuffer(dst, src, *bufPtr)
 }
 
-// Pipe create a general bidirectional pipe between two streams
-func Pipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
-	var closed sync.Once
+// closeWriter is an interface for connections that support half-close (CloseWrite).
+// Both net.TCPConn and smux.Stream implement this interface.
+type closeWriter interface {
+	CloseWrite() error
+}
 
+// Pipe create a general bidirectional pipe between two streams
+// It uses CloseWrite() for half-close to allow graceful shutdown:
+// when one direction finishes, it signals the peer that no more data will be sent,
+// while still allowing data to be received from the other direction.
+func Pipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	streamCopy := func(dst io.Writer, src io.ReadCloser, err *error) {
+	streamCopy := func(dst io.ReadWriteCloser, src io.ReadWriteCloser, err *error) {
+		defer wg.Done()
+
 		// write error directly to the *pointer
 		_, *err = Copy(dst, src)
+
 		if closeWait > 0 {
 			<-time.After(time.Duration(closeWait) * time.Second)
 		}
 
-		// wg.Done() called
-		wg.Done()
-
-		// close only once
-		closed.Do(func() {
-			alice.Close()
-			bob.Close()
-		})
+		// half-close: signal the peer that we are done writing
+		// use CloseWrite if available, otherwise fall back to Close
+		if cw, ok := dst.(closeWriter); ok {
+			cw.CloseWrite()
+		} else {
+			dst.Close()
+		}
 	}
 
 	// start bidirectional stream copying
-	go streamCopy(alice, bob, &errA)
-	go streamCopy(bob, alice, &errB)
+	// alice -> bob: read from alice, write to bob
+	// bob -> alice: read from bob, write to alice
+	go streamCopy(bob, alice, &errA) // alice->bob direction
+	go streamCopy(alice, bob, &errB) // bob->alice direction
 
 	// wait for both direction to close
 	wg.Wait()
+
+	// fully close both connections after both directions are done
+	alice.Close()
+	bob.Close()
 
 	return
 }
