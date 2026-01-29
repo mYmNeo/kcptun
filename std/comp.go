@@ -78,9 +78,9 @@ func (c *CompStream) SetWriteDeadline(t time.Time) error {
 
 // NewCompStream creates a new stream that compresses data using snappy
 func NewCompStream(conn net.Conn) *CompStream {
-	c := new(CompStream)
-	c.conn = conn
-	c.w = snappy.NewBufferedWriter(conn)
-	c.r = snappy.NewReader(conn)
-	return c
+	return &CompStream{
+		conn: conn,
+		w:    snappy.NewBufferedWriter(conn),
+		r:    snappy.NewReader(conn),
+	}
 }

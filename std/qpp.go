@@ -70,9 +70,12 @@ type QPPPort struct {
 }
 
 func NewQPPPort(underlying io.ReadWriteCloser, pad *qpp.QuantumPermutationPad, seed []byte) *QPPPort {
-	wprng := qpp.CreatePRNG(seed)
-	rprng := qpp.CreatePRNG(seed)
-	return &QPPPort{underlying, pad, wprng, rprng}
+	return &QPPPort{
+		underlying: underlying,
+		pad:        pad,
+		wprng:      qpp.CreatePRNG(seed),
+		rprng:      qpp.CreatePRNG(seed),
+	}
 }
 
 func (r *QPPPort) Read(p []byte) (n int, err error) {

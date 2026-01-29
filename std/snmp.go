@@ -24,10 +24,10 @@ package std
 
 import (
 	"encoding/csv"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	kcp "github.com/xtaci/kcp-go/v5"
@@ -66,7 +66,7 @@ func writeSnmpRecord(path string) error {
 			return err
 		}
 	}
-	if err := w.Write(append([]string{fmt.Sprint(time.Now().Unix())}, kcp.DefaultSnmp.ToSlice()...)); err != nil {
+	if err := w.Write(append([]string{strconv.FormatInt(time.Now().Unix(), 10)}, kcp.DefaultSnmp.ToSlice()...)); err != nil {
 		return err
 	}
 	w.Flush()

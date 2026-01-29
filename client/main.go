@@ -487,7 +487,8 @@ func createConn(config *Config, block kcp.BlockCrypt) (*smux.Session, error) {
 		config.KeepAlive,
 	)
 	if err != nil {
-		log.Fatalf("%+v", err)
+		kcpconn.Close()
+		return nil, errors.Wrap(err, "BuildSmuxConfig()")
 	}
 
 	var session *smux.Session
@@ -532,8 +533,9 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 	}
 	defer p2.Close()
 
-	logln("stream opened", "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
-	defer logln("stream closed", "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
+	streamID := fmt.Sprintf("%v(%d)", p2.RemoteAddr(), p2.ID())
+	logln("stream opened", "in:", p1.RemoteAddr(), "out:", streamID)
+	defer logln("stream closed", "in:", p1.RemoteAddr(), "out:", streamID)
 
 	var s1, s2 io.ReadWriteCloser = p1, p2
 	// Optionally wrap the smux side with QPP obfuscation.
@@ -547,10 +549,10 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 
 	// Report non-EOF errors so operators can diagnose failing streams.
 	if err1 != nil && !errors.Is(err1, io.EOF) {
-		logln("pipe:", err1, "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
+		logln("pipe:", err1, "in:", p1.RemoteAddr(), "out:", streamID)
 	}
 	if err2 != nil && !errors.Is(err2, io.EOF) {
-		logln("pipe:", err2, "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
+		logln("pipe:", err2, "in:", p1.RemoteAddr(), "out:", streamID)
 	}
 }
 

@@ -62,11 +62,11 @@ func ParseMultiPort(addr string) (*MultiPort, error) {
 			return nil, errors.Errorf("invalid port range specified: minport:%v -> maxport %v", minPort, maxPort)
 		}
 
-		mp := new(MultiPort)
-		mp.Host = matches[1]
-		mp.MinPort = uint64(minPort)
-		mp.MaxPort = uint64(maxPort)
-		return mp, nil
+		return &MultiPort{
+			Host:    matches[1],
+			MinPort: uint64(minPort),
+			MaxPort: uint64(maxPort),
+		}, nil
 	}
 
 	return nil, errors.Errorf("malformed address:%v", addr)
