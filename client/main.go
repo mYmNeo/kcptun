@@ -401,7 +401,11 @@ func main() {
 
 		// Optionally expose Go's net/http/pprof handlers on :6060.
 		if config.Pprof {
-			go http.ListenAndServe(":6060", nil)
+			go func() {
+				if err := http.ListenAndServe(":6060", nil); err != nil {
+					log.Println("pprof server:", err)
+				}
+			}()
 		}
 
 		// Launch the session scavenger only when auto-expiration is enabled.

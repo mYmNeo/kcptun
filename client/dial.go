@@ -71,12 +71,22 @@ func dial(config *Config, block kcp.BlockCrypt) (*kcp.UDPSession, error) {
 
 		udpaddr, err := net.ResolveUDPAddr("udp", remoteAddr)
 		if err != nil {
+			conn.Close()
 			return nil, errors.WithStack(err)
 		}
 
 		var convid uint32
-		binary.Read(rand.Reader, binary.LittleEndian, &convid)
-		return kcp.NewConn4(convid, udpaddr, block, config.DataShard, config.ParityShard, true, conn)
+		if err := binary.Read(rand.Reader, binary.LittleEndian, &convid); err != nil {
+			conn.Close()
+			return nil, errors.Wrap(err, "read convid")
+		}
+
+		kcpConn, err := kcp.NewConn4(convid, udpaddr, block, config.DataShard, config.ParityShard, true, conn)
+		if err != nil {
+			conn.Close()
+			return nil, errors.Wrap(err, "kcp.NewConn4()")
+		}
+		return kcpConn, nil
 	}
 
 	// Otherwise fall back to the standard UDP dialing path.

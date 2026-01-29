@@ -80,7 +80,9 @@ func Pipe(alice, bob io.ReadWriteCloser, closeWait int) (errA, errB error) {
 		_, *err = Copy(dst, src)
 
 		if closeWait > 0 {
-			<-time.After(time.Duration(closeWait) * time.Second)
+			timer := time.NewTimer(time.Duration(closeWait) * time.Second)
+			<-timer.C
+			timer.Stop()
 		}
 
 		// half-close: signal the peer that we are done writing

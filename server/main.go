@@ -309,6 +309,8 @@ func main() {
 		log.Println("listening on:", config.Listen)
 		log.Println("target:", config.Target)
 		log.Println("encryption:", config.Crypt)
+		log.Println("QPP:", config.QPP)
+		log.Println("QPP Count:", config.QPPCount)
 		log.Println("nodelay parameters:", config.NoDelay, config.Interval, config.Resend, config.NoCongestion)
 		log.Println("sndwnd:", config.SndWnd, "rcvwnd:", config.RcvWnd)
 		log.Println("compression:", !config.NoComp)
@@ -354,7 +356,11 @@ func main() {
 
 		// Start the pprof server if the feature is enabled.
 		if config.Pprof {
-			go http.ListenAndServe(":6060", nil)
+			go func() {
+				if err := http.ListenAndServe(":6060", nil); err != nil {
+					log.Println("pprof server:", err)
+				}
+			}()
 		}
 
 		// Instantiate a shared QPP pad if the feature is enabled.
