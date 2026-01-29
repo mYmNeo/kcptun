@@ -62,7 +62,7 @@ func sigHandler() {
 			// wait for max EXIT_WAIT seconds before exit
 			exitOnce.Do(func() {
 				go func() {
-					<-time.After(EXIT_WAIT * time.Second)
+					time.Sleep(EXIT_WAIT * time.Second)
 					os.Exit(0)
 				}()
 			})

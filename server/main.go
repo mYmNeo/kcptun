@@ -24,6 +24,7 @@ package main
 
 import (
 	"crypto/sha1"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,6 +33,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/pbkdf2"
 
@@ -490,25 +492,21 @@ func handleMux(_Q_ *qpp.QuantumPermutationPad, conn net.Conn, config *Config) {
 			var p2 net.Conn
 			var err error
 
+			// Use timeout to prevent indefinite hanging when target is unreachable
+			const dialTimeout = 10 * time.Second
 			switch targetType {
 			case TGT_TCP:
-				p2, err = net.Dial("tcp", config.Target)
-				if err != nil {
-					log.Println(err)
-					p1.Close()
-					return
-				}
-				handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
+				p2, err = net.DialTimeout("tcp", config.Target, dialTimeout)
 			case TGT_UNIX:
-				p2, err = net.Dial("unix", config.Target)
-				if err != nil {
-					log.Println(err)
-					p1.Close()
-					return
-				}
-				handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
+				p2, err = net.DialTimeout("unix", config.Target, dialTimeout)
 			}
 
+			if err != nil {
+				log.Println(err)
+				p1.Close()
+				return
+			}
+			handleClient(_Q_, []byte(config.Key), p1, p2, config.Quiet, config.CloseWait)
 		}(stream)
 	}
 }
@@ -540,10 +538,10 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, p1 *smux.Stream, 
 	err1, err2 := std.Pipe(s1, s2, closeWait)
 
 	// Report non-EOF errors so operators can diagnose failing streams.
-	if err1 != nil && err1 != io.EOF {
+	if err1 != nil && !errors.Is(err1, io.EOF) {
 		logln("pipe:", err1, "in:", streamID, "out:", p2.RemoteAddr())
 	}
-	if err2 != nil && err2 != io.EOF {
+	if err2 != nil && !errors.Is(err2, io.EOF) {
 		logln("pipe:", err2, "in:", streamID, "out:", p2.RemoteAddr())
 	}
 }

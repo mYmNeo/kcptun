@@ -546,10 +546,10 @@ func handleClient(_Q_ *qpp.QuantumPermutationPad, seed []byte, session *smux.Ses
 	err1, err2 := std.Pipe(s1, s2, closeWait)
 
 	// Report non-EOF errors so operators can diagnose failing streams.
-	if err1 != nil && err1 != io.EOF {
+	if err1 != nil && !errors.Is(err1, io.EOF) {
 		logln("pipe:", err1, "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
 	}
-	if err2 != nil && err2 != io.EOF {
+	if err2 != nil && !errors.Is(err2, io.EOF) {
 		logln("pipe:", err2, "in:", p1.RemoteAddr(), "out:", fmt.Sprint(p2.RemoteAddr(), "(", p2.ID(), ")"))
 	}
 }
