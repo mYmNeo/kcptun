@@ -1,6 +1,6 @@
 # <img src="assets/logo.png" alt="kcptun" height="54px" /> 
 
-[![Release][13]][14] [![Powered][17]][18] [![MIT licensed][11]][12] [![Build Status][3]][4] [![Go Report Card][5]][6]
+[![Powered][17]][18] [![MIT licensed][11]][12] [![Build Status][3]][4] [![Go Report Card][5]][6]
 
 [1]: https://img.shields.io/docker/pulls/xtaci/kcptun
 [2]: https://hub.docker.com/r/xtaci/kcptun
