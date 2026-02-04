@@ -2,7 +2,6 @@
 
 [![Powered][17]][18] [![MIT licensed][11]][12] [![Build Status][3]][4] [![Go Report Card][5]][6]
 
-> **⚠️ [中文免责声明 / Chinese Disclaimer](disclaimer_zh.md)**
 
 [1]: https://img.shields.io/docker/pulls/xtaci/kcptun
 [2]: https://hub.docker.com/r/xtaci/kcptun
@@ -22,6 +21,7 @@
 <img src="assets/kcptun.png" alt="kcptun" height="300px"/>
 
 ## Disclaimer
+> **⚠️ [中文免责声明 / Chinese Disclaimer](disclaimer_zh.md)**
 
 1. Technical Purpose: This software is a general-purpose network tunneling tool based on the KCP protocol. It is designed solely for academic research, network performance testing, and legal optimization of data transmission in high-latency environments.
 
