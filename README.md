@@ -2,6 +2,8 @@
 
 [![Powered][17]][18] [![MIT licensed][11]][12] [![Build Status][3]][4] [![Go Report Card][5]][6]
 
+> **⚠️ [中文免责声明 / Chinese Disclaimer](disclaimer_zh.md)**
+
 [1]: https://img.shields.io/docker/pulls/xtaci/kcptun
 [2]: https://hub.docker.com/r/xtaci/kcptun
 [3]: https://img.shields.io/github/created-at/xtaci/kcptun
