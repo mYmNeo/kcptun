@@ -114,8 +114,6 @@ $ ./build-release.sh
 $ cd build
 ```
 
-All precompiled releases are generated using the `build-release.sh` script.
-
 ## Performance
 
 <img src="assets/fast.png" alt="fast.com" height="256px" />  
