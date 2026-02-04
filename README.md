@@ -19,8 +19,8 @@
 
 <img src="assets/kcptun.png" alt="kcptun" height="300px"/>
 
-```
-Disclaimer
+## Disclaimer
+
 1. Technical Purpose: This software is a general-purpose network tunneling tool based on the KCP protocol. It is designed solely for academic research, network performance testing, and legal optimization of data transmission in high-latency environments.
 
 2. Official Channel: The developer maintains only one official website: github.com/xtaci/kcptun. Any other websites, mirrors, or repackaged versions are NOT endorsed by the developer.
@@ -30,7 +30,6 @@ Disclaimer
 4. No Liability: The developer provides this software "as is" without any express or implied warranties. Under no circumstances shall the developer be liable for any legal consequences or criminal charges arising from the misuse of this tool or the use of unofficial versions.
 
 5. Acceptance: By using this software, you agree to these terms. If you do not agree, delete all related code and binaries immediately.
-```
 
 ## Table of Contents
 
