@@ -1,6 +1,6 @@
 # <img src="assets/logo.png" alt="kcptun" height="54px" /> 
 
-[![Release][13]][14] [![Powered][17]][18] [![MIT licensed][11]][12] [![Build Status][3]][4] [![Go Report Card][5]][6] [![Downloads][15]][16] [![Docker][1]][2] 
+[![Release][13]][14] [![Powered][17]][18] [![MIT licensed][11]][12] [![Build Status][3]][4] [![Go Report Card][5]][6]
 
 [1]: https://img.shields.io/docker/pulls/xtaci/kcptun
 [2]: https://hub.docker.com/r/xtaci/kcptun
@@ -19,7 +19,18 @@
 
 <img src="assets/kcptun.png" alt="kcptun" height="300px"/>
 
-> *Disclaimer: kcptun maintains a single website — [github.com/xtaci/kcptun](https://github.com/xtaci/kcptun). Any websites other than [github.com/xtaci/kcptun](https://github.com/xtaci/kcptun) are not endorsed by xtaci.*
+```
+Disclaimer
+1. Technical Purpose: This software is a general-purpose network tunneling tool based on the KCP protocol. It is designed solely for academic research, network performance testing, and legal optimization of data transmission in high-latency environments.
+
+2. Official Channel: The developer maintains only one official website: github.com/xtaci/kcptun. Any other websites, mirrors, or repackaged versions are NOT endorsed by the developer.
+
+3. User Responsibility: Users are strictly required to comply with all local laws and regulations. You must NOT use this tool to establish illegal channels for cross-border networking, bypass national regulatory systems, or engage in any activities that violate the laws of the People's Republic of China or your own jurisdiction.
+
+4. No Liability: The developer provides this software "as is" without any express or implied warranties. Under no circumstances shall the developer be liable for any legal consequences or criminal charges arising from the misuse of this tool or the use of unofficial versions.
+
+5. Acceptance: By using this software, you agree to these terms. If you do not agree, delete all related code and binaries immediately.
+```
 
 ## Table of Contents
 
@@ -60,10 +71,6 @@
 
 ## QuickStart
 
-Download:
-
-`curl -L  https://raw.githubusercontent.com/xtaci/kcptun/master/download.sh | sh`
-
 Increase the number of open files on your server, as:
 
 `ulimit -n 65535`, or write it in `~/.bashrc`.
@@ -84,8 +91,6 @@ You can also increase the per-socket buffer by adding the parameter (default 4MB
 -sockbuf 16777217
 ```
 For **slow processors**, increasing this buffer is **CRITICAL** for proper packet reception.
-
-Download the appropriate binary from the precompiled [Releases](https://github.com/xtaci/kcptun/releases).
 
 ```
 KCP Client: ./client_darwin_amd64 -r "KCP_SERVER_IP:4000" -l ":8388" -mode fast3 -nocomp -autoexpire 900 -sockbuf 16777217 -dscp 46
