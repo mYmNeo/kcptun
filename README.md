@@ -1,5 +1,11 @@
 # <img src="assets/logo.png" alt="kcptun" height="54px" /> 
 
+> ⚠️ **Project Status Notice**
+>
+> This project is archived and no longer maintained.  
+> No binaries are provided.  
+> This repository is for research and reference purposes only.
+
 [![Powered][17]][18] [![MIT licensed][11]][12] [![Build Status][3]][4] [![Go Report Card][5]][6]
 
 
