@@ -299,7 +299,7 @@ GLOBAL OPTIONS:
 
 ### Multiport Dialer
 
-kcptun can dial across a port range to avoid ISP QoS throttling or port-based interference.
+kcptun allows connectivity across a defined port range to improve transmission efficiency and network robustness.
 
 **How it works:**
 - Address format: `IP:min-max` (e.g., `1.2.3.4:3000-4000`).
