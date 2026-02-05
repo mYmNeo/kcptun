@@ -29,13 +29,13 @@
 ## Disclaimer
 > **⚠️ [中文免责声明 / Chinese Disclaimer](disclaimer_zh.md)**
 
-1. Technical Purpose: This software is a general-purpose network tunneling tool based on the KCP protocol. It is designed solely for academic research, network performance testing, and legal optimization of data transmission in high-latency environments.
+1. Technical Purpose: This software is a general-purpose network transport accelerator based on the KCP protocol. It is designed solely for academic research, network performance testing, and legal optimization of data transmission in high-latency environments.
 
 2. Official Channel: The developer maintains only one official website: github.com/xtaci/kcptun. Any other websites, mirrors, or repackaged versions are NOT endorsed by the developer.
 
-3. User Responsibility: Users are strictly required to comply with all local laws and regulations. You must NOT use this tool to establish illegal channels for cross-border networking, bypass national regulatory systems, or engage in any activities that violate the laws of the People's Republic of China or your own jurisdiction.
+3. User Responsibility: Users are strictly required to comply with all local laws and regulations. You must NOT use this tool to establish illegal network channels, circumvent national regulatory systems, or engage in any activities that violate the laws of the People's Republic of China or your own jurisdiction.
 
-4. No Liability: The developer provides this software "as is" without any express or implied warranties. Under no circumstances shall the developer be liable for any legal consequences or criminal charges arising from the misuse of this tool or the use of unofficial versions.
+4. No Liability: The developer provides this software "as is" without any express or implied warranties. Under no circumstances shall the developer be liable for any legal consequences arising from improper use of this tool or the use of unofficial versions.
 
 5. Acceptance: By using this software, you agree to these terms. If you do not agree, delete all related code and binaries immediately.
 
@@ -107,7 +107,7 @@ The above commands will establish a port forwarding channel for port 8388/tcp as
 
 > Application -> **KCP Client(8388/tcp) -> KCP Server(4000/udp)** -> Target Server(8388/tcp) 
 
-which tunnels the original connection:
+which relays the original connection:
 
 > Application -> Target Server(8388/tcp) 
 
@@ -397,9 +397,9 @@ Starting from v20251212, kcptun supports `aes-128-gcm`, which is an Authenticate
 
 Other possible attacks against kcptun include: 
 
-- [Traffic analysis](https://en.wikipedia.org/wiki/Traffic_analysis) - data flow patterns from specific websites may be identifiable during data exchange. This type of eavesdropping has been mitigated by adapting [smux](https://github.com/xtaci/smux) to mix data streams and introduce noise. A perfect solution has not yet emerged; theoretically, shuffling/mixing messages across a larger-scale network may further mitigate this problem. 
+- [Traffic analysis](https://en.wikipedia.org/wiki/Traffic_analysis) - data flow patterns may be identifiable during data exchange. This has been addressed by adapting [smux](https://github.com/xtaci/smux) to mix data streams. A perfect solution has not yet emerged; theoretically, shuffling/mixing messages across a larger-scale network may further address this issue. 
 
-- [Replay attack](https://en.wikipedia.org/wiki/Replay_attack) - since asymmetric encryption has not been integrated into kcptun, capturing and replaying packets on a different machine is possible. (Note: hijacking sessions and decrypting contents remains *impossible*). Therefore, upper layers must implement an asymmetric cryptosystem or a derived MAC to guarantee authenticity and prevent replay attacks (ensuring each message is processed exactly once). This vulnerability can only be eliminated by signing requests with private keys or employing an HMAC-based mechanism following initial authentication.
+- [Replay attack](https://en.wikipedia.org/wiki/Replay_attack) - since asymmetric encryption has not been integrated into kcptun, replaying packets is theoretically possible. Therefore, upper layers should implement an asymmetric cryptosystem or a derived MAC to guarantee authenticity and prevent replay attacks (ensuring each message is processed exactly once). This can be addressed by signing requests with private keys or employing an HMAC-based mechanism following initial authentication.
 
 Important:
 1. `-crypt` and `-key` must be identical on both the KCP Client and KCP Server.

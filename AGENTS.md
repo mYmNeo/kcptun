@@ -1,7 +1,7 @@
 # kcptun Project Guide for AI Agents
 
 ## 1. Project Overview
-**kcptun** is a stable and secure tunnel based on KCP with N:M multiplexing and FEC (Forward Error Correction). It is designed to tunnel TCP traffic over KCP (UDP), which can significantly improve throughput on lossy networks.
+**kcptun** is a high-performance network accelerator based on KCP with N:M multiplexing and FEC (Forward Error Correction). It is designed to relay TCP traffic over KCP (UDP), which can significantly improve throughput on lossy networks.
 
 - **Core Protocol**: KCP (Reliable UDP).
 - **Language**: Go.
@@ -23,7 +23,7 @@ The project follows a Client-Server architecture:
   - Handles encryption/decryption and multiplexing.
 
 **Data Flow**:
-`Application -> KCP Client (TCP Listen) -> [KCP/UDP Tunnel] -> KCP Server (UDP Listen) -> Target Server (TCP Connect)`
+`Application -> KCP Client (TCP Listen) -> [KCP/UDP Relay] -> KCP Server (UDP Listen) -> Target Server (TCP Connect)`
 
 ## 3. Directory Structure
 
